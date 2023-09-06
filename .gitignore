@@ -2,3 +2,6 @@ pkg/
 api.key
 .api.key.trimmed
 *-handin.tar.gz
+src/main/mr-tmp/
+src/main/temp-*
+src/main/mr-out*

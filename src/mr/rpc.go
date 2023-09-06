@@ -8,7 +8,6 @@ package mr
 
 import "os"
 import "strconv"
-
 //
 // example to show how to declare the arguments
 // and reply for an RPC.
@@ -23,7 +22,21 @@ type ExampleReply struct {
 }
 
 // Add your RPC definitions here.
+type AskArgs struct{
 
+}
+type AskReply struct{
+	StartTime int64
+	FileName string
+
+	X int // map task num
+	Y int // reduce task num 
+	NFiles int // num of files 
+	NReduce int // num of nReduce
+
+	Method string // map or reduce
+
+}
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
