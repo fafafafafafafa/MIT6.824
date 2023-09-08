@@ -41,7 +41,7 @@ func splitKvaIntoFiles(kvas []KeyValue, fileid int,nReduce int){
 		filename := fmt.Sprintf("temp-%v-%v", fileid, i)
 		f, err := os.Create(filename)
 		if err != nil{
-			log.Fatal("create temp file failed!")
+			log.Fatalf("create temp file: %v failed!\n", filename)
 			return
 		}
 		enc := json.NewEncoder(f)
@@ -110,8 +110,10 @@ func Worker(mapf func(string, string) []KeyValue,
 				kvas := mapf(filename, string(content))
 				splitKvaIntoFiles(kvas, askreply.X, askreply.NReduce)
 				args := AskReply{
+					StartTime: askreply.StartTime,
+					FileName: askreply.FileName,
 					X: askreply.X,
-				
+					Y: askreply.Y,
 					NFiles: askreply.NFiles,
 					NReduce: askreply.NReduce,
 					Method: askreply.Method,
@@ -153,6 +155,9 @@ func Worker(mapf func(string, string) []KeyValue,
 	
 				ofile.Close()
 				args := AskReply{
+					StartTime: askreply.StartTime,
+					FileName: askreply.FileName,
+					X: askreply.X,
 					Y: askreply.Y,
 					NFiles: askreply.NFiles,
 					NReduce: askreply.NReduce,
@@ -227,7 +232,7 @@ func CallTaskDone(args *AskReply){
 // returns false if something goes wrong.
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
-	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
+	//c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
