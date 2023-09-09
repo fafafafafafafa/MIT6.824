@@ -1,6 +1,6 @@
 package mr
 import "sync"
-import "fmt"
+// import "fmt"
 
 type node struct{
 
@@ -78,21 +78,49 @@ func (l *LinkedList) RemoveTask(t *TaskState) bool{
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	n := l.Head.nextNode
-	fmt.Printf("in RemoveTask func, t = %+v\n", t)
+	// fmt.Printf("in RemoveTask func, t = %+v\n", t)
 
 	for ; n != l.Tail; {
-		fmt.Printf("in RemoveTask func, n = %+v\n", n.data)
+		// fmt.Printf("in RemoveTask func, n = %+v\n", n.data)
 		if *n.data == *t{
 			break
 		}
 		n = n.nextNode
 	}
 	if n == l.Tail{
+		// fmt.Printf("in RemoveTask func, remove failed!\n")
 		return false
 	}else{
 		n.nextNode.prevNode = n.prevNode
 		n.prevNode.nextNode = n.nextNode
 		l.count --
+		// fmt.Printf("in RemoveTask func, remove successful!\n")
+		// fmt.Printf("in RemoveTask func, %v task is running\n", l.count)
+
 		return true
 	}
+}
+
+func  (l *LinkedList) CheckTimeout(outtime int64) []*TaskState{
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	curtime := getNowTimeSecond()
+
+	n := l.Head.nextNode
+	retqueue := make([]*TaskState, 0)
+	for ; n != l.Tail; {
+		if (curtime-n.data.StartTime)>outtime{
+			task := n.data
+			retqueue = append(retqueue, task)
+
+			temp := n.prevNode
+			n.prevNode.nextNode = n.nextNode
+			n.nextNode.prevNode = n.prevNode
+			l.count--
+			n = temp
+		}
+		n = n.nextNode
+	}
+	return retqueue
+
 }

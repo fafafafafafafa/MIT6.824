@@ -45,24 +45,25 @@ func getNowTimeSecond() int64 {
 
 // Your code here -- RPC handlers for the worker to call.
 func (c *Coordinator) AskTask(args *AskArgs, reply *AskReply) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	fmt.Println("***********************************************")
-	defer fmt.Println("----------------------------------------------")
-	fmt.Println("in AskTask func , len of c.mapTaskWaitingQueue=", c.mapTaskWaitingQueue.GetLen())
-	fmt.Println("in AskTask func , len of c.mapTaskRunningQueue=", c.mapTaskRunningQueue.GetLen())
-	fmt.Println("in AskTask func , len of c.mapTaskMap=", c.mapTaskMap.GetLen())
+	
+	// fmt.Println("***********************************************")
+	// defer fmt.Println("----------------------------------------------")
+	// fmt.Println("in AskTask func , len of c.mapTaskWaitingQueue=", c.mapTaskWaitingQueue.GetLen())
+	// fmt.Println("in AskTask func , len of c.mapTaskRunningQueue=", c.mapTaskRunningQueue.GetLen())
+	// fmt.Println("in AskTask func , len of c.mapTaskMap=", c.mapTaskMap.GetLen())
 
-	fmt.Println("in AskTask func , len of c.reduceTaskWaitingQueue=", c.reduceTaskWaitingQueue.GetLen())
-	fmt.Println("in AskTask func , len of c.reduceTaskRunningQueue=", c.reduceTaskRunningQueue.GetLen())
-	fmt.Println("in AskTask func , len of c.reduceTaskMap=", c.reduceTaskMap.GetLen())
+	// fmt.Println("in AskTask func , len of c.reduceTaskWaitingQueue=", c.reduceTaskWaitingQueue.GetLen())
+	// fmt.Println("in AskTask func , len of c.reduceTaskRunningQueue=", c.reduceTaskRunningQueue.GetLen())
+	// fmt.Println("in AskTask func , len of c.reduceTaskMap=", c.reduceTaskMap.GetLen())
+	c.mu.Lock()
 	if c.mapTaskWaitingQueue.GetLen() > 0{
 		
 		maptask := c.mapTaskWaitingQueue.PopHead()
+		c.mu.Unlock()
 		curtime := getNowTimeSecond()
 		maptask.StartTime = curtime
 		c.mapTaskRunningQueue.AddTail(maptask)
-		fmt.Printf("in AskTask func, give mapTask , maptask=%+v\n", maptask)
+		// fmt.Printf("in AskTask func, give mapTask , maptask=%+v\n", maptask)
 		*reply = AskReply{
 			StartTime: curtime,
 			FileName: maptask.FileName,
@@ -74,6 +75,7 @@ func (c *Coordinator) AskTask(args *AskArgs, reply *AskReply) error {
 		}
 		return nil
 	}else if c.mapTaskMap.GetLen() < c.nFiles{
+		c.mu.Unlock()
 		*reply = AskReply{
 			Method: "wait",
 		}
@@ -81,10 +83,11 @@ func (c *Coordinator) AskTask(args *AskArgs, reply *AskReply) error {
 	}
 	if c.reduceTaskWaitingQueue.GetLen() > 0{
 		reducetask := c.reduceTaskWaitingQueue.PopHead()
+		c.mu.Unlock()
 		curtime := getNowTimeSecond()
 		reducetask.StartTime = curtime
 		c.reduceTaskRunningQueue.AddTail(reducetask)
-		fmt.Printf("in AskTask func, give reducetask , reducetask=%+v\n", reducetask)
+		// fmt.Printf("in AskTask func, give reducetask , reducetask=%+v\n", reducetask)
 		*reply = AskReply{
 			StartTime: curtime,
 			FileName: reducetask.FileName,
@@ -96,6 +99,7 @@ func (c *Coordinator) AskTask(args *AskArgs, reply *AskReply) error {
 		}
 		return nil
 	}else if c.reduceTaskMap.GetLen() < c.nReduce{
+		c.mu.Unlock()
 		*reply = AskReply{
 			Method: "wait",
 		}
@@ -103,6 +107,7 @@ func (c *Coordinator) AskTask(args *AskArgs, reply *AskReply) error {
 	}
 
 	if c.mapTaskWaitingQueue.GetLen()==0 && c.reduceTaskWaitingQueue.GetLen()==0{
+		c.mu.Unlock()
 		*reply = AskReply{
 			Method: "done",
 		}
@@ -111,22 +116,21 @@ func (c *Coordinator) AskTask(args *AskArgs, reply *AskReply) error {
 	return nil
 }
 func (c *Coordinator) TaskDone(args *AskReply, reply *AskArgs) error{
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	
 	curtime := getNowTimeSecond()
 	runtime := curtime-args.StartTime
-	fmt.Println("***********************************************")
-	defer fmt.Println("----------------------------------------------")
-	fmt.Println("in TaskDone func , len of c.mapTaskWaitingQueue=", c.mapTaskWaitingQueue.GetLen())
-	fmt.Println("in TaskDone func , len of c.mapTaskRunningQueue=", c.mapTaskRunningQueue.GetLen())
-	fmt.Println("in TaskDone func , len of c.mapTaskMap=", c.mapTaskMap.GetLen())
+	// fmt.Println("***********************************************")
+	// defer fmt.Println("----------------------------------------------")
+	// fmt.Println("in TaskDone func , len of c.mapTaskWaitingQueue=", c.mapTaskWaitingQueue.GetLen())
+	// fmt.Println("in TaskDone func , len of c.mapTaskRunningQueue=", c.mapTaskRunningQueue.GetLen())
+	// fmt.Println("in TaskDone func , len of c.mapTaskMap=", c.mapTaskMap.GetLen())
 
-	fmt.Println("in TaskDone func , len of c.reduceTaskWaitingQueue=", c.reduceTaskWaitingQueue.GetLen())
-	fmt.Println("in TaskDone func , len of c.reduceTaskRunningQueue=", c.reduceTaskRunningQueue.GetLen())
-	fmt.Println("in TaskDone func , len of c.reduceTaskMap=", c.reduceTaskMap.GetLen())
+	// fmt.Println("in TaskDone func , len of c.reduceTaskWaitingQueue=", c.reduceTaskWaitingQueue.GetLen())
+	// fmt.Println("in TaskDone func , len of c.reduceTaskRunningQueue=", c.reduceTaskRunningQueue.GetLen())
+	// fmt.Println("in TaskDone func , len of c.reduceTaskMap=", c.reduceTaskMap.GetLen())
 
-	fmt.Printf("in TaskDone func, StartTime = %v, CurTime = %v\n", args.StartTime, curtime)
-	fmt.Printf("in TaskDone func, runtime = %v\n", runtime)
+	// fmt.Printf("in TaskDone func, StartTime = %v, CurTime = %v\n", args.StartTime, curtime)
+	// fmt.Printf("in TaskDone func, runtime = %v\n", runtime)
 	
 	switch args.Method{
 		case "map":{
@@ -145,8 +149,10 @@ func (c *Coordinator) TaskDone(args *AskReply, reply *AskArgs) error{
 				// assume this worker has been died 
 				fmt.Println("task died!")
 			}else{
+				//c.mu.Lock()
 				c.mapTaskMap.Insert(maptask)
 				flag := c.mapTaskRunningQueue.RemoveTask(&maptask)
+				//c.mu.Unlock()
 				if flag == false{
 					log.Fatal("remove maptask failed!")
 				}
@@ -169,8 +175,10 @@ func (c *Coordinator) TaskDone(args *AskReply, reply *AskArgs) error{
 				fmt.Println("task died!")
 				
 			}else{
+				//c.mu.Lock()
 				c.reduceTaskMap.Insert(reducetask)
 				flag := c.reduceTaskRunningQueue.RemoveTask(&reducetask)
+				//c.mu.Unlock()
 				if flag == false{
 					log.Fatal("remove reducetask failed!")
 				}
@@ -211,57 +219,34 @@ func (c *Coordinator) server() {
 // check whether there is a worker died
 //
 func (c *Coordinator) CheckTaskDied(){
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	fmt.Println("***********************************************")
-	defer fmt.Println("----------------------------------------------")
-	fmt.Println("in CheckTaskDied func , len of c.mapTaskWaitingQueue=", c.mapTaskWaitingQueue.GetLen())
-	fmt.Println("in CheckTaskDied func , len of c.mapTaskRunningQueue=", c.mapTaskRunningQueue.GetLen())
-	fmt.Println("in CheckTaskDied func , len of c.mapTaskMap=", c.mapTaskMap.GetLen())
+	
+	// fmt.Println("***********************************************")
+	// defer fmt.Println("----------------------------------------------")
+	// fmt.Printf("^^^^^^ in CheckTaskDied func , time = %v ^^^^^^\n", getNowTimeSecond())
+	// fmt.Println("in CheckTaskDied func , len of c.mapTaskWaitingQueue=", c.mapTaskWaitingQueue.GetLen())
+	// fmt.Println("in CheckTaskDied func , len of c.mapTaskRunningQueue=", c.mapTaskRunningQueue.GetLen())
+	// fmt.Println("in CheckTaskDied func , len of c.mapTaskMap=", c.mapTaskMap.GetLen())
 
-	fmt.Println("in CheckTaskDied func , len of c.reduceTaskWaitingQueue=", c.reduceTaskWaitingQueue.GetLen())
-	fmt.Println("in CheckTaskDied func , len of c.reduceTaskRunningQueue=", c.reduceTaskRunningQueue.GetLen())
-	fmt.Println("in CheckTaskDied func , len of c.reduceTaskMap=", c.reduceTaskMap.GetLen())
+	// fmt.Println("in CheckTaskDied func , len of c.reduceTaskWaitingQueue=", c.reduceTaskWaitingQueue.GetLen())
+	// fmt.Println("in CheckTaskDied func , len of c.reduceTaskRunningQueue=", c.reduceTaskRunningQueue.GetLen())
+	// fmt.Println("in CheckTaskDied func , len of c.reduceTaskMap=", c.reduceTaskMap.GetLen())
+	//c.mu.Lock()
 	if c.mapTaskMap.GetLen() < c.nFiles{
 		// in map task process
-		for maptask := c.mapTaskRunningQueue.Head.nextNode; maptask != c.mapTaskRunningQueue.Tail; {
-			curtime := getNowTimeSecond()
-			runtime := curtime-maptask.data.StartTime
-			if runtime > c.outtime{
-				// out of time 
-				fmt.Printf("out of time, mapptask = %+v\n", maptask.data)
-				
-				c.mapTaskWaitingQueue.AddTail(maptask.data)
-				temp := maptask.nextNode
-				flag := c.mapTaskRunningQueue.RemoveTask(maptask.data)
-				if flag == false{
-					log.Fatal("remove maptask failed!")
-				}
-				maptask = temp
-			}
-		}
-		
+		retqueue := c.mapTaskRunningQueue.CheckTimeout(c.outtime)
+		for i := 0; i < len(retqueue); i++{
+			// fmt.Println("put outtime task back into waiting queue")
+			c.mapTaskWaitingQueue.AddTail(retqueue[i])
+		} 
 	}else if c.reduceTaskMap.GetLen() < c.nReduce{
 		// in reduce task process
-		for reducetask := c.reduceTaskRunningQueue.Head.nextNode; reducetask != c.reduceTaskRunningQueue.Tail; {
-			curtime := getNowTimeSecond()
-			runtime := curtime-reducetask.data.StartTime
-			if runtime > c.outtime{
-				// out of time 
-				// grid of running queue and put into waiting queue
-				
-				c.reduceTaskWaitingQueue.AddTail(reducetask.data)
-				
-				temp := reducetask.nextNode
-				flag := c.reduceTaskRunningQueue.RemoveTask(reducetask.data)
-				if flag == false{
-					log.Fatal("remove maptask failed!")
-				}
-				reducetask = temp
-			}
-		}
+		retqueue := c.reduceTaskRunningQueue.CheckTimeout(c.outtime)
+		for i := 0; i < len(retqueue); i++{
+			// fmt.Println("put outtime task back into waiting queue")
+			c.reduceTaskWaitingQueue.AddTail(retqueue[i])
+		} 
 	}
-
+	//c.mu.Unlock()
 }
 
 //
@@ -335,12 +320,17 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	//fmt.Println("wait for done ...")
 	
 	go func(){
-		if (c.Done()){
+		for{
+			if (c.Done()){
 			
-			time.Sleep(5*time.Second) //wait for all workers close
-			fmt.Println("coordinator is done!")
-			return
+				time.Sleep(5*time.Second) //wait for all workers close
+				fmt.Println("coordinator is done!")
+				return
+			}
+			time.Sleep(2*time.Second) //wait for all workers close
+
 		}
+		
 	}()
 
 	go func(){
