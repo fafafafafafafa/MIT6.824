@@ -39,11 +39,17 @@ func splitKvaIntoFiles(kvas []KeyValue, fileid int,nReduce int){
 	//fmt.Printf("kvas writes into %v files\n", nReduce)
 	for i := 0; i < nReduce; i++{
 		filename := fmt.Sprintf("temp-%v-%v", fileid, i)
-		f, err := os.Create(filename)
+		// tempfile, err := ioutil.TempFile("", "example") // deprecated!
+		f, err := os.CreateTemp("", "example")
 		if err != nil{
-			log.Fatalf("create temp file: %v failed!\n", filename)
-			return
+			log.Fatal(err)
 		}
+		defer os.Remove(f.Name())
+		// f, err := os.Create(filename)
+		// if err != nil{
+		// 	log.Fatalf("create temp file: %v failed!\n", filename)
+		// 	return
+		// }
 		enc := json.NewEncoder(f)
 		for _, kva := range fileskva[i]{
 			err := enc.Encode(kva)
@@ -51,6 +57,13 @@ func splitKvaIntoFiles(kvas []KeyValue, fileid int,nReduce int){
 				log.Fatal("encode kva failed!")
 				return 
 			}
+		}
+		err = os.Rename(f.Name(),filename)
+		if err != nil{
+			log.Fatalf("rename %v to %v failed!\n", f.Name(), filename)
+		}
+		if err := f.Close(); err != nil {
+			log.Fatal(err)
 		}
 	}
 
@@ -129,8 +142,12 @@ func Worker(mapf func(string, string) []KeyValue,
 				sort.Sort(ByKey(kvas))
 	
 				oname := fmt.Sprintf("mr-out-%v", nReduceId)
-				ofile, _ := os.Create(oname)
-	
+				// ofile, _ := os.Create(oname)
+				ofile, err := os.CreateTemp("", "example")
+				if err != nil{
+					log.Fatal(err)
+				}
+				defer os.Remove(ofile.Name())
 				//
 				// call Reduce on each distinct key in intermediate[],
 				// and print the result to mr-out-0.
@@ -152,8 +169,14 @@ func Worker(mapf func(string, string) []KeyValue,
 	
 					i = j
 				}
-	
-				ofile.Close()
+				err = os.Rename(ofile.Name(), oname)
+				if err != nil{
+					log.Fatalf("rename %v to %v failed!\n", ofile.Name(), oname)
+				}
+				if err := ofile.Close(); err != nil {
+					log.Fatal(err)
+				}
+
 				args := AskReply{
 					StartTime: askreply.StartTime,
 					FileName: askreply.FileName,
