@@ -209,13 +209,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 	reply.VoteGranted = false
 	if rf.currentTerm > args.Term{
 		// candiate's term is out of date
-		DPrintf("candiate's term is out of date\n")
 		return 
 	}
 	if args.Term > rf.currentTerm{
 		// reset outdate leader or candiate
-		// rf.currentTerm = args.Term
 		rf.identity = FOLLOWER
+		rf.currentTerm = args.Term
 		rf.votedFor = -1
 	}
 	if rf.identity == FOLLOWER{
@@ -360,7 +359,7 @@ func getRandTimeoutMillisecond() int64{
 func (rf *Raft) election(){
 	rf.mu.Lock()
 	rf.startTime = getNowTimeMillisecond()
-	rf.outTime = getRandTimeoutMillisecond()	//reset outtime or election 
+	rf.outTime = getRandTimeoutMillisecond()	//reset outtime for election 
 	rf.votedFor = rf.me		// vote self
 	rf.currentTerm = rf.currentTerm + 1
 
@@ -399,18 +398,26 @@ func (rf *Raft) election(){
 
 			if rf.identity == CANDIATE && oldterm == rf.currentTerm{
 				// if reply is not outdate
-			
-				if reply.VoteGranted{
-				
-					*count = *count+1
+				if reply.Term > rf.currentTerm{
+					rf.identity = FOLLOWER
+					rf.currentTerm = reply.Term
+					rf.votedFor = -1
+					rf.startTime = getNowTimeMillisecond()
 					
+				}else{
+					if reply.VoteGranted{
+				
+						*count = *count+1
+						
+					}
+					
+					if *count > len(rf.peers)/2 {
+						rf.identity = LEADER
+						DPrintf("win the election raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
+						rf.winElectionChan <- struct{}{}	// may be dead locked !!!
+					}
 				}
 				
-				if *count > len(rf.peers)/2 {
-					rf.identity = LEADER
-					DPrintf("win the election raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
-					rf.winElectionChan <- struct{}{}	// may be dead locked !!!
-				}
 
 			}
 			
@@ -449,6 +456,9 @@ func (rf *Raft) heartBeats(){
 				// rf is not outdate
 				if reply.Term > rf.currentTerm{
 					rf.identity = FOLLOWER
+					rf.votedFor = -1
+					rf.currentTerm = reply.Term
+					rf.startTime = getNowTimeMillisecond()
 					DPrintf("raft %v return to follower\n", rf.me)
 	
 				}
@@ -520,7 +530,7 @@ func (rf *Raft) stateTrans(){
 			}
 			break
 		case LEADER:
-			//DPrintf("raft %v start to heartbeats", rf.me)
+			DPrintf("raft %v term: %v, start to heartbeats", rf.me, rf.currentTerm)
 
 			rf.mu.Unlock()
 			rf.heartBeats()
