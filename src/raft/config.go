@@ -57,7 +57,7 @@ type config struct {
 	maxIndex0 int
 }
 
-var ncpu_once sync.Once
+var ncpu_once sync.Once  //使函数只执行一次的实现，常应用于单例模式，例如初始化配置、保持数据库连接等
 
 func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 	ncpu_once.Do(func() {
@@ -66,7 +66,7 @@ func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 		}
 		rand.Seed(makeSeed())
 	})
-	runtime.GOMAXPROCS(4)
+	runtime.GOMAXPROCS(4)	// max cpu num for using
 	cfg := &config{}
 	cfg.t = t
 	cfg.net = labrpc.MakeNetwork()
@@ -261,7 +261,7 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 	// but copy old persister's content so that we always
 	// pass Make() the last persisted state.
 	if cfg.saved[i] != nil {
-		cfg.saved[i] = cfg.saved[i].Copy()
+		cfg.saved[i] = cfg.saved[i].Copy()	// why?
 	} else {
 		cfg.saved[i] = MakePersister()
 	}
@@ -270,7 +270,7 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 
 	applyCh := make(chan ApplyMsg)
 
-	rf := Make(ends, i, cfg.saved[i], applyCh)
+	rf := Make(ends, i, cfg.saved[i], applyCh) // in raft.go Make() line 247
 
 	cfg.mu.Lock()
 	cfg.rafts[i] = rf

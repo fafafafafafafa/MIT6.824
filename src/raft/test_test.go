@@ -24,7 +24,7 @@ func TestInitialElection2A(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2A): initial election")
+	cfg.begin("------Test (2A): initial election------")
 
 	// is a leader elected?
 	cfg.checkOneLeader()
@@ -55,33 +55,51 @@ func TestReElection2A(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2A): election after network failure")
-
+	cfg.begin("------Test (2A): election after network failure------")
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 	leader1 := cfg.checkOneLeader()
-
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 	// if the leader disconnects, a new one should be elected.
+	DPrintf("******* leader1 disconnect *******")
 	cfg.disconnect(leader1)
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 	cfg.checkOneLeader()
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 
 	// if the old leader rejoins, that shouldn't
 	// disturb the new leader.
+	DPrintf("******* leader1 reconnect *******")
 	cfg.connect(leader1)
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 	leader2 := cfg.checkOneLeader()
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 
 	// if there's no quorum, no leader should
 	// be elected.
+	DPrintf("******* no leader *******")
 	cfg.disconnect(leader2)
 	cfg.disconnect((leader2 + 1) % servers)
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 	time.Sleep(2 * RaftElectionTimeout)
 	cfg.checkNoLeader()
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 
 	// if a quorum arises, it should elect a leader.
+	DPrintf("******* have leader *******")
 	cfg.connect((leader2 + 1) % servers)
+	DPrintAllRafts(cfg.rafts, cfg.connected)
+
 	cfg.checkOneLeader()
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 
 	// re-join of last node shouldn't prevent leader from existing.
+	DPrintf("******* have leader *******")
+
 	cfg.connect(leader2)
+	DPrintAllRafts(cfg.rafts, cfg.connected)
+
 	cfg.checkOneLeader()
+	DPrintAllRafts(cfg.rafts, cfg.connected)
 
 	cfg.end()
 }
@@ -91,7 +109,7 @@ func TestManyElections2A(t *testing.T) {
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
-	cfg.begin("Test (2A): multiple elections")
+	cfg.begin("------Test (2A): multiple elections------")
 
 	cfg.checkOneLeader()
 

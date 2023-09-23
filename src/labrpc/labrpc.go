@@ -58,6 +58,7 @@ import "strings"
 import "math/rand"
 import "time"
 import "sync/atomic"
+// import "fmt"
 
 type reqMsg struct {
 	endname  interface{} // name of sending ClientEnd
@@ -456,8 +457,8 @@ func MakeService(rcvr interface{}) *Service {
 		mtype := method.Type
 		mname := method.Name
 
-		//fmt.Printf("%v pp %v ni %v 1k %v 2k %v no %v\n",
-		//	mname, method.PkgPath, mtype.NumIn(), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
+		// fmt.Printf("%v, pp %v, ni %v, 1k %v, 2k %v, no %v\n",
+		// mname, method.PkgPath, mtype.NumIn(), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
 
 		if method.PkgPath != "" || // capitalized?
 			mtype.NumIn() != 3 ||
@@ -505,6 +506,7 @@ func (svc *Service) dispatch(methname string, req reqMsg) replyMsg {
 		choices := []string{}
 		for k, _ := range svc.methods {
 			choices = append(choices, k)
+
 		}
 		log.Fatalf("labrpc.Service.dispatch(): unknown method %v in %v; expecting one of %v\n",
 			methname, req.svcMeth, choices)
