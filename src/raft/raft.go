@@ -74,7 +74,7 @@ type Raft struct {
 	startTime int64
 	outTime int64
 	constCheckTime int
-	constAppendTime int
+	constAppendTime int 
 
 	currentTerm int	// latest term server has seen (initialized to 0 on first boot, increases monotonically)
 	votedFor int	// candidateId that received vote in current term (or null if none)
@@ -356,27 +356,7 @@ func getRandTimeoutMillisecond() int64{
 	randtime := int64(300 + rand.Intn(200))
 	return randtime
 }
-func (rf *Raft) checkTimeout(){
-	for rf.killed() == false{
-		if _, isleader := rf.GetState(); !isleader{
-			curtime := getNowTimeMillisecond()
-		
-			rf.mu.Lock()
-			starttime := rf.startTime
-			
-			if curtime - starttime >  rf.outTime{
-				rf.mu.Unlock()
-				// start election
-				rf.checkChan <- struct{}{}
-			}else{
-				rf.mu.Unlock()
-			}
 
-		}
-		
-		time.Sleep(time.Duration(rf.constCheckTime) * time.Millisecond)
-	}
-}
 func (rf *Raft) election(){
 	rf.mu.Lock()
 	rf.startTime = getNowTimeMillisecond()
@@ -489,8 +469,28 @@ func (rf *Raft) heartBeats(){
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.
 func (rf *Raft) ticker() {
-	go rf.checkTimeout()
-	// go rf.heartBeats()
+	for rf.killed() == false{
+		if _, isleader := rf.GetState(); !isleader{
+			curtime := getNowTimeMillisecond()
+		
+			rf.mu.Lock()
+			starttime := rf.startTime
+			
+			if curtime - starttime >  rf.outTime{
+				rf.mu.Unlock()
+				// start election
+				rf.checkChan <- struct{}{}
+			}else{
+				rf.mu.Unlock()
+			}
+
+		}
+		
+		time.Sleep(time.Duration(rf.constCheckTime) * time.Millisecond)
+	}
+
+}
+func (rf *Raft) stateTrans(){
 	for rf.killed() == false {
 
 		// Your code here to check if a leader election should
@@ -528,7 +528,6 @@ func (rf *Raft) ticker() {
 		}
 	}
 }
-
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -571,7 +570,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start ticker goroutine to start elections
 	DPrintf("make a raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
 	go rf.ticker()
-
+	go rf.stateTrans()
 
 	return rf
 }
