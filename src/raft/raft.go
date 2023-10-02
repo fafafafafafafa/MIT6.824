@@ -78,7 +78,7 @@ type Raft struct {
 
 	currentTerm int	// latest term server has seen (initialized to 0 on first boot, increases monotonically)
 	votedFor int	// candidateId that received vote in current term (or null if none)
-	log []*LogEntry	//each entry contains command for state machine, and term when entry was received by leader (first index is 1)
+	log map[int]LogEntry	//each entry contains command for state machine, and term when entry was received by leader (first index is 1)
 
 	commitIndex int // index of highest log entry kanown to be committed (initialized to 0, increases monotonically)
 	lastApplied int // index of highest log entry applied to state machine (initialized to 0, increases monotonically)
@@ -88,6 +88,7 @@ type Raft struct {
 
 	checkChan chan struct{}
 	winElectionChan chan struct{}
+	applyCh chan ApplyMsg
 }
 
 type LogEntry struct{
@@ -250,14 +251,58 @@ type AppendEntriesReply struct{
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply){
 	rf.mu.Lock()
 	reply.Term = rf.currentTerm
+	reply.Success = false
+
 	if args.Term >= rf.currentTerm{
 		//DPrintf("reset raft %v", rf.me)
+		
 		rf.startTime = getNowTimeMillisecond()
 		rf.votedFor = -1
 		rf.currentTerm = args.Term
 		rf.identity = FOLLOWER
-	}
+		// has new entry
+		if len(args.Entries) > 0{
+			if args.PrevLogIndex == 0{
+				// len of leader's log is 1 , and len of follower's must be 0, if not, overwrite follower
+				// l := len(rf.log)
+				// if l > 0 {
+				// 	rf.log = make(map[int]LogEntry, 0)
+				// }
+				
+				for _, entry := range args.Entries{
+					rf.log[entry.Index] = entry
+				}
+				reply.Success = true
+				
+			}else if args.PrevLogIndex > 0{
+				// len of leader's log is greater than 2, which last entry is new entry 
+				// now we just only append one entry one time, though using : Entries []LogEntry
+				entry, ok := rf.log[args.PrevLogIndex]
+				if ok && entry.Term == args.PrevLogTerm{
+					 
+					for _, entry := range args.Entries{
+						rf.log[entry.Index] = entry
+					}
+					reply.Success = true
 
+				}
+				
+
+			}
+		}else{
+			for args.LeaderCommit > rf.commitIndex{
+				rf.commitIndex = rf.commitIndex + 1
+				 
+				DPrintf("cmd is committed, raft: %v, commitIndex: %v\n", rf.me, rf.commitIndex)
+				rf.applyCh <- ApplyMsg{
+					CommandValid: true,
+					Command: rf.log[rf.commitIndex].Command,
+					CommandIndex: rf.commitIndex,
+				}	// may be dead locked !!!
+			}
+		}
+	}
+	
 	rf.mu.Unlock()
 	
 }
@@ -321,7 +366,26 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
+	rf.mu.Lock()
+	if rf.identity == LEADER{
+		l := len(rf.log)
+		term = rf.currentTerm
+		index = l+1
+		logentry := LogEntry{
+			Term: term,
+			Index:index,
+			Command: command,
+		}
+		rf.log[index] = logentry
+		entries := make([]LogEntry, 0)
+		entries = append(entries, logentry)
 
+		go rf.heartBeats(entries)
+		
+	}else{
+		isLeader = false
+	}
+	rf.mu.Unlock()
 
 	return index, term, isLeader
 }
@@ -429,19 +493,34 @@ func (rf *Raft) election(){
  
 
 }
-func (rf *Raft) heartBeats(){
+func (rf *Raft) heartBeats(entries []LogEntry){
+	// term := 0
+	// leaderId := 0
+	prevLogIndex := 0
+	prevLogTerm := 0
+	// entries := entries
+	// leaderCommit := 0
 	rf.mu.Lock()
-	 
+	
+	if l := len(rf.log); l > 1{
+		prevLogIndex = rf.log[l-2].Index
+		prevLogTerm = rf.log[l-2].Term
+	}
 	args := &AppendEntriesArgs{
 		Term: rf.currentTerm,	// leader's term
 		LeaderId: rf.me,
+		PrevLogIndex: prevLogIndex,
+		PrevLogTerm: prevLogTerm,
+		Entries: entries,
+		LeaderCommit: rf.commitIndex,
 	}
+	count := 0
 	for idx, _ := range rf.peers{
 		// old_term := rf.currentTerm 
 		if idx == rf.me{
 			continue
 		}
-		go func(i int, rf *Raft){
+		go func(i int, count *int, rf *Raft){
 			oldterm , _:= rf.GetState()
 			reply := &AppendEntriesReply{}
 			ok := rf.sendAppendEntries(i, args, reply)
@@ -461,12 +540,29 @@ func (rf *Raft) heartBeats(){
 					rf.startTime = getNowTimeMillisecond()
 					DPrintf("raft %v return to follower\n", rf.me)
 	
+				}else{
+					if reply.Success{
+						*count = *count + 1
+					}
+					if *count > len(rf.peers)/2 {
+						for _, entry := range entries{
+							rf.commitIndex = rf.commitIndex + 1
+							DPrintf("cmd is committed, raft: %v, commitIndex: %v\n", rf.me, rf.commitIndex)
+							rf.applyCh <- ApplyMsg{
+								CommandValid: true,
+								Command: entry.Command,
+								CommandIndex: rf.commitIndex,
+							}	// may be dead locked !!!
+						}
+					
+						
+					}
 				}
 			} 
 			
 			rf.mu.Unlock()
 
-		}(idx, rf)
+		}(idx, &count, rf)
 			
 		
 	}
@@ -533,7 +629,7 @@ func (rf *Raft) stateTrans(){
 			DPrintf("raft %v term: %v, start to heartbeats", rf.me, rf.currentTerm)
 
 			rf.mu.Unlock()
-			rf.heartBeats()
+			rf.heartBeats([]LogEntry{})
 			break
 		}
 	}
@@ -565,7 +661,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.log = make([]*LogEntry, 0)
+	rf.log = make(map[int]LogEntry, 0)
 	rf.commitIndex = 0
 	rf.lastApplied = 0
 	rf.nextIndex = make([]int, 1, len(peers))
@@ -573,6 +669,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.checkChan = make(chan struct{})
 	rf.winElectionChan = make(chan struct{})
+	
+	rf.applyCh = applyCh
+
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())

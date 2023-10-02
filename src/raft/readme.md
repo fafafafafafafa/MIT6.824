@@ -1,4 +1,5 @@
-
+shell for i in {1..100}; do go test -run testfunc; done  
+*****election 2A*******
 follower
 timeout结束，转变为candiate
 
@@ -25,4 +26,15 @@ leader
 	若leader outdate，即reply.term > leader.term , 转化为follower
 	若args.term >= raft.term， 将其打回为follower,  更新reaft.term
 	
+*****log 2B*******
+
+appendEntries()
+how to know new entry is appended?
+once start(), e.g. raft(leader) want to start agreement, we call heartBeats() one time with entries[] which is not empty.
+
+commited: a log entry is safe to be applied to the state machines.
+how to know a log entry is commited? --- a log entry is replicated on a majority of the servers
+
+
+
 
