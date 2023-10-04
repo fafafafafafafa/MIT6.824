@@ -214,6 +214,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 	}
 	if args.Term > rf.currentTerm{
 		// reset outdate leader or candiate
+		DPrintf("raft %v, has been reset to follower, from term %v to %v, votedfor %v to %v", 
+		rf.me, rf.currentTerm, args.Term, rf.votedFor, -1)
 		rf.identity = FOLLOWER
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
@@ -224,7 +226,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId){
 		
 		l := len(rf.log)
-		if l == 0 || args.LastLogTerm > rf.log[l-1].Term || (args.LastLogTerm == rf.log[l-1].Term && args.LastLogIndex >= rf.log[l-1].Index){
+		DPrintf("raft %v, VOTE: args.LastLogTerm = %v, rf.log[l].Term = %v. args.LastLogIndex = %v, rf.log[l].Index = %v\n", 
+		rf.me, args.LastLogTerm, rf.log[l].Term, args.LastLogIndex, rf.log[l].Index)
+
+		if l == 0 || args.LastLogTerm > rf.log[l].Term || (args.LastLogTerm == rf.log[l].Term && args.LastLogIndex >= rf.log[l].Index){
+			DPrintf("raft %v, term %v, vote for raft %v", rf.me, rf.currentTerm, args.CandidateId)
+
 			// candiate's log is more up-to-date
 			rf.votedFor = args.CandidateId
 			// reply.Term = rf.currentTerm
@@ -272,19 +279,21 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				// if l > 0 {
 				// 	rf.log = make(map[int]LogEntry, 0)
 				// }
-				
+				rf.log = make(map[int]LogEntry, 0)
 				for _, entry := range args.Entries{
 					rf.log[entry.Index] = entry
+					DPrintf("AppendEntries: cmd(%v) is appended, raft: %v, index: %v, len of log %v\n", entry.Command, rf.me, entry.Index, len(rf.log))
 				}
 				reply.Success = true
 				
 			}else {
 				// len of leader's log is greater than 2
 				
-				entry, ok := rf.log[args.PrevLogIndex]
-				if ok && entry.Term == args.PrevLogTerm{
+				e, ok := rf.log[args.PrevLogIndex]
+				if ok && args.PrevLogIndex == len(rf.log) && e.Term == args.PrevLogTerm{
 					 
 					for _, entry := range args.Entries{
+						DPrintf("AppendEntries: cmd(%v) is appended, raft: %v, index: %v\n", entry.Command, rf.me, entry.Index)
 						rf.log[entry.Index] = entry
 					}
 					reply.Success = true
@@ -440,8 +449,8 @@ func (rf *Raft) election(){
 	lastLogIndex := 0
 	lastLogTerm := 0
 	if l > 0{
-		lastLogIndex = rf.log[l-1].Index
-		lastLogTerm = rf.log[l-1].Term
+		lastLogIndex = rf.log[l].Index
+		lastLogTerm = rf.log[l].Term
 	}
 	args := &RequestVoteArgs{
 		Term: rf.currentTerm, 		// candidate's term
@@ -510,7 +519,11 @@ func (rf *Raft) heartBeats(){
 	rf.mu.Lock()
 	rf.nextIndex[rf.me] = len(rf.log)+1
 	rf.matchIndex[rf.me] = len(rf.log)
-	
+	DPrintf("****************\n")
+	DPrintf("nextIndex: %v\n", rf.nextIndex)
+	DPrintf("matchIndex: %v\n", rf.matchIndex)
+	DPrintf("****************\n")
+
 	for idx, _ := range rf.peers{
 		// old_term := rf.currentTerm 
 		if idx == rf.me{
@@ -530,6 +543,9 @@ func (rf *Raft) heartBeats(){
 			for ;nextIndex <= len(rf.log);nextIndex ++{
 				entries = append(entries, rf.log[nextIndex])
 			}
+
+			rf.nextIndex[i] = nextIndex
+
 			args := &AppendEntriesArgs{
 				Term: rf.currentTerm,	// leader's term
 				LeaderId: rf.me,
@@ -556,15 +572,16 @@ func (rf *Raft) heartBeats(){
 					rf.votedFor = -1
 					rf.currentTerm = reply.Term
 					rf.startTime = getNowTimeMillisecond()
-					DPrintf("raft %v return to follower\n", rf.me)
+					DPrintf("raft %v return to follower, currentTerm is %v\n", rf.me, rf.currentTerm)
 	
 				}else{
 					if reply.Success{
-						rf.nextIndex[i] = rf.nextIndex[i] + len(entries)
+						// rf.nextIndex[i] = rf.nextIndex[i] + len(entries)
 						rf.matchIndex[i] = rf.nextIndex[i] - 1
 						
 					}else{
-						rf.nextIndex[i] = rf.nextIndex[i] - 1
+						DPrintf("raft: %v, nextIndex decrease, from %v to %v\n ", i, rf.nextIndex[i], rf.nextIndex[i] - len(entries) - 1)
+						rf.nextIndex[i] = rf.nextIndex[i] - len(entries) - 1
 						if rf.nextIndex[i] < 1{
 							rf.nextIndex[i] = 1
 						}
@@ -677,6 +694,7 @@ func (rf *Raft) stateTrans(){
 			rf.heartBeats()
 			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 //
