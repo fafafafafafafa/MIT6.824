@@ -55,11 +55,13 @@ type config struct {
 	bytes0    int64
 	maxIndex  int
 	maxIndex0 int
+
+	mylog	  *Mylog	// print log in file
 }
 
 var ncpu_once sync.Once  //使函数只执行一次的实现，常应用于单例模式，例如初始化配置、保持数据库连接等
 
-func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
+func make_config(t *testing.T, n int, unreliable bool, snapshot bool, mylog *Mylog) *config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
@@ -78,6 +80,7 @@ func make_config(t *testing.T, n int, unreliable bool, snapshot bool) *config {
 	cfg.endnames = make([][]string, cfg.n)
 	cfg.logs = make([]map[int]interface{}, cfg.n)
 	cfg.start = time.Now()
+	cfg.mylog = mylog
 
 	cfg.setunreliable(unreliable)
 
@@ -139,6 +142,7 @@ func (cfg *config) checkLogs(i int, m ApplyMsg) (string, bool) {
 	for j := 0; j < len(cfg.logs); j++ {
 		if old, oldok := cfg.logs[j][m.CommandIndex]; oldok && old != v {
 			log.Printf("%v: log %v; server %v\n", i, cfg.logs[i], cfg.logs[j])
+			cfg.mylog.DFprintf("%v: log %v; server %v\n", i, cfg.logs[i], cfg.logs[j])
 			// some server has already committed a different value for this entry!
 			err_msg = fmt.Sprintf("commit index=%v server=%v %v != server=%v %v",
 				m.CommandIndex, i, m.Command, j, old)
@@ -166,6 +170,7 @@ func (cfg *config) applier(i int, applyCh chan ApplyMsg) {
 				err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 			}
 			if err_msg != "" {
+				cfg.mylog.DFprintf("apply error: %v\n", err_msg)
 				log.Fatalf("apply error: %v\n", err_msg)
 				cfg.applyErr[i] = err_msg
 				// keep reading after error so that Raft doesn't block
@@ -191,6 +196,7 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 				d := labgob.NewDecoder(r)
 				var v int
 				if d.Decode(&v) != nil {
+					cfg.mylog.DFprintf("decode error\n")
 					log.Fatalf("decode error\n")
 				}
 				cfg.logs[i][m.SnapshotIndex] = v
@@ -206,6 +212,7 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 				err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 			}
 			if err_msg != "" {
+				cfg.mylog.DFprintf("apply error: %v\n", err_msg)
 				log.Fatalf("apply error: %v\n", err_msg)
 				cfg.applyErr[i] = err_msg
 				// keep reading after error so that Raft doesn't block
@@ -270,7 +277,7 @@ func (cfg *config) start1(i int, applier func(int, chan ApplyMsg)) {
 
 	applyCh := make(chan ApplyMsg)
 
-	rf := Make(ends, i, cfg.saved[i], applyCh) // in raft.go Make() line 247
+	rf := Make(ends, i, cfg.saved[i], applyCh, cfg.mylog) // in raft.go Make() line 247
 
 	cfg.mu.Lock()
 	cfg.rafts[i] = rf
@@ -386,6 +393,7 @@ func (cfg *config) checkOneLeader() int {
 		lastTermWithLeader := -1
 		for term, leaders := range leaders {
 			if len(leaders) > 1 {
+				cfg.mylog.DFprintf("term %d has %d (>1) leaders\n", term, len(leaders))
 				cfg.t.Fatalf("term %d has %d (>1) leaders", term, len(leaders))
 			}
 			if term > lastTermWithLeader {
@@ -397,6 +405,8 @@ func (cfg *config) checkOneLeader() int {
 			return leaders[lastTermWithLeader][0]
 		}
 	}
+	cfg.mylog.DFprintf("expected one leader, got none\n")
+
 	cfg.t.Fatalf("expected one leader, got none")
 	return -1
 }
@@ -410,6 +420,7 @@ func (cfg *config) checkTerms() int {
 			if term == -1 {
 				term = xterm
 			} else if term != xterm {
+				cfg.mylog.DFprintf("servers disagree on term\n")
 				cfg.t.Fatalf("servers disagree on term")
 			}
 		}
@@ -423,6 +434,7 @@ func (cfg *config) checkNoLeader() {
 		if cfg.connected[i] {
 			_, is_leader := cfg.rafts[i].GetState()
 			if is_leader {
+				cfg.mylog.DFprintf("expected no leader, but %v claims to be leader\n", i)
 				cfg.t.Fatalf("expected no leader, but %v claims to be leader", i)
 			}
 		}
@@ -444,6 +456,7 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 
 		if ok {
 			if count > 0 && cmd != cmd1 {
+				cfg.mylog.DFprintf("committed values do not match: index %v, %v, %v\n", index, cmd, cmd1)
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v\n",
 					index, cmd, cmd1)
 			}
@@ -479,6 +492,7 @@ func (cfg *config) wait(index int, n int, startTerm int) interface{} {
 	}
 	nd, cmd := cfg.nCommitted(index)
 	if nd < n {
+		cfg.mylog.DFprintf("only %d decided for index %d; wanted %d\n", nd, index, n)
 		cfg.t.Fatalf("only %d decided for index %d; wanted %d\n",
 			nd, index, n)
 	}
@@ -536,13 +550,16 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 				time.Sleep(20 * time.Millisecond)
 			}
 			if retry == false {
+				cfg.mylog.DFprintf("one(%v) failed to reach agreement\n", cmd)
 				cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
 			}
 		} else {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
+	cfg.mylog.DFprintf("one(%v) failed to reach agreement\n", cmd)
 	cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
+	
 	return -1
 }
 
@@ -551,6 +568,8 @@ func (cfg *config) one(cmd interface{}, expectedServers int, retry bool) int {
 // e.g. cfg.begin("Test (2B): RPC counts aren't too high")
 func (cfg *config) begin(description string) {
 	fmt.Printf("%s ...\n", description)
+	cfg.mylog.DFprintf("%s ...\n", description)
+	
 	cfg.t0 = time.Now()
 	cfg.rpcs0 = cfg.rpcTotal()
 	cfg.bytes0 = cfg.bytesTotal()
@@ -574,7 +593,9 @@ func (cfg *config) end() {
 		cfg.mu.Unlock()
 
 		fmt.Printf("  ... Passed --")
+		cfg.mylog.DFprintf("  ... Passed --\n")
 		fmt.Printf("  %4.1f  %d %4d %7d %4d\n", t, npeers, nrpc, nbytes, ncmds)
+		cfg.mylog.DFprintf("  %4.1f  %d %4d %7d %4d\n", t, npeers, nrpc, nbytes, ncmds)
 	}
 }
 

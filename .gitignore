@@ -6,3 +6,5 @@ src/main/mr-tmp/
 src/main/temp-*
 src/main/mr-out*
 src/mrapps/*.so
+src/raft/logs2B
+

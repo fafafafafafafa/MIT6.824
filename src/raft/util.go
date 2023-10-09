@@ -1,9 +1,15 @@
 package raft
 
 import "log"
-
+import "io"
+import "fmt"
 // Debugging
 const Debug = true
+
+type Mylog struct{
+	W io.Writer
+	Debug bool
+} 
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
@@ -12,6 +18,15 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
+func (mylog *Mylog)DFprintf(format string, a ...interface{}) (n int, err error) {
+	mylog.Debug = Debug
+	if mylog.Debug {
+		// log.Printf(format, a...)
+		fmt.Fprintf(mylog.W, format, a...)
+		log.Printf(format, a...)
+	}
+	return
+}
 func DPrintAllRafts(rafts []*Raft, connected []bool){
 	if Debug{
 	log.Println("^^^^^^^^print all rafts info^^^^^^^^")

@@ -1,4 +1,6 @@
 shell for i in {1..100}; do go test -run testfunc; done  
+clear; time go test -timeout 1h -run TestBackup2B -args "100" 
+
 *****election 2A*******
 follower
 timeout结束，转变为candiate
