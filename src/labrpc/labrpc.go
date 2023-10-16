@@ -166,6 +166,7 @@ func MakeNetwork() *Network {
 }
 
 func (rn *Network) Cleanup() {
+	
 	close(rn.done)
 }
 

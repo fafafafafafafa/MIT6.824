@@ -216,16 +216,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 		// reset outdate leader or candiate
 		// DPrintf("RequestVote: raft %v, has been reset to follower, from term %v to %v, votedfor %v to %v", 
 		// rf.me, rf.currentTerm, args.Term, rf.votedFor, -1)
-
-		rf.mylog.DFprintf("RequestVote: raft %v, has been reset to follower, from term %v to %v, votedfor %v to %v\n", 
-		rf.me, rf.currentTerm, args.Term, rf.votedFor, -1)
-
 		rf.currentTerm = args.Term
 		rf.identity = FOLLOWER
 		rf.votedFor = -1
-		rf.outTime = getRandTimeoutMillisecond()
-		rf.startTime = getNowTimeMillisecond()
-
+		// rf.outTime = getRandTimeoutMillisecond()
+		// rf.startTime = getNowTimeMillisecond()
+		rf.mylog.DFprintf("RequestVote: raft %v, has been reset to follower, from term %v to %v, votedfor %v to %v, startTime: %v, outTime: %v\n", 
+		rf.me, rf.currentTerm, args.Term, rf.votedFor, -1, rf.startTime, rf.outTime)
+		 
 	}
 	// if rf.identity == FOLLOWER{
 	// 	rf.startTime = getNowTimeMillisecond()	
@@ -514,8 +512,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 // should call killed() to check whether it should stop.
 //
 func (rf *Raft) Kill() {
+	rf.mylog.DFprintf("&&&& raft %v is killed! &&&&\n", rf.me)
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
+	rf.applyCond.Broadcast()
+	close(rf.applyCh)
+	close(rf.checkChan)
+	close(rf.winElectionChan)
+	
 }
 
 func (rf *Raft) killed() bool {
@@ -528,19 +532,18 @@ func getNowTimeMillisecond() int64{
 
 }
 func getRandTimeoutMillisecond() int64{
-	randtime := int64(300 + rand.Intn(250))
+	randtime := int64(500 + rand.Intn(400))
 	return randtime
 }
 
 func (rf *Raft) election(){
 	rf.mu.Lock()
-	rf.startTime = getNowTimeMillisecond()
-	rf.outTime = getRandTimeoutMillisecond()	//reset outtime for election 
-	rf.votedFor = rf.me		// vote self
-	rf.currentTerm = rf.currentTerm + 1
+	// rf.startTime = getNowTimeMillisecond()
+	// rf.outTime = getRandTimeoutMillisecond()	//reset outtime for election 
+	// rf.votedFor = rf.me		// vote self
+	// rf.currentTerm = rf.currentTerm + 1
 
 	// DPrintf("election: timeout raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v\n", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
-	rf.mylog.DFprintf("election: timeout raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v\n", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
 	l := len(rf.log)
 	lastLogIndex := 0
 	lastLogTerm := 0
@@ -630,10 +633,11 @@ func (rf *Raft) heartBeats(){
 		if e, ok := rf.log[prevLogIndex]; ok{
 			prevLogTerm = e.Term
 		}
+		
 		for ;nextIndex <= len(rf.log);nextIndex ++{
 			entries = append(entries, rf.log[nextIndex])
 		}
-
+		 
 		// rf.nextIndex[idx] = nextIndex
 
 		args := &AppendEntriesArgs{
@@ -731,37 +735,40 @@ func (rf *Raft) heartBeats(){
 		
 	}
 	rf.mu.Unlock()
-	time.Sleep(time.Duration(rf.constAppendTime) * time.Millisecond)
 	// time.Sleep(rf.constAppendTime * time.Millisecond)
 	
 	 
 }
 // apply committed cmd 
 func (rf *Raft) applier() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	rf.lastApplied = 0
 
 	for rf.killed() == false{
-		rf.mu.Lock()
-		for rf.lastApplied >= rf.commitIndex{
-			rf.applyCond.Wait()
-		}
-		startTime := getNowTimeMillisecond()
 		
-		lastApplied := rf.lastApplied + 1
-		for ;lastApplied <= rf.commitIndex; lastApplied++{
-			
-			applyMsg := ApplyMsg{
-				CommandValid: true,	
-				Command: rf.log[lastApplied].Command,
-				CommandIndex: lastApplied,
+		if rf.lastApplied >= rf.commitIndex{
+			rf.applyCond.Wait()
+		}else{
+			startTime := getNowTimeMillisecond()
+		
+			lastApplied := rf.lastApplied + 1
+			for ;lastApplied <= rf.commitIndex; lastApplied++{
+				
+				applyMsg := ApplyMsg{
+					CommandValid: true,	
+					Command: rf.log[lastApplied].Command,
+					CommandIndex: lastApplied,
+				}
+				rf.mu.Unlock()
+				rf.applyCh <- applyMsg
+				rf.mu.Lock()
 			}
-			rf.mu.Unlock()
-			rf.applyCh <- applyMsg
-			rf.mu.Lock()
+			rf.lastApplied = lastApplied-1
+			rf.mylog.DFprintf("applier use time %v (ms)\n", getNowTimeMillisecond()-startTime)
 		}
-		rf.lastApplied = lastApplied-1
-		rf.mylog.DFprintf("applier use time %v (ms)\n", getNowTimeMillisecond()-startTime)
-		rf.mu.Unlock()
+		
+		
 	}
 
 }
@@ -770,12 +777,21 @@ func (rf *Raft) applier() {
 func (rf *Raft) ticker() {
 	for rf.killed() == false{
 		if _, isleader := rf.GetState(); !isleader{
-			curtime := getNowTimeMillisecond()
-		
+
 			rf.mu.Lock()
+			curtime := getNowTimeMillisecond()
 			starttime := rf.startTime
 			
-			if curtime - starttime >  rf.outTime{
+			if curtime - starttime > rf.outTime{
+				// rf data must be updated immediately not in func: election,
+				// otherwise they may be update by RPCs call and then be update in func: election twice
+				rf.identity = CANDIATE
+				rf.startTime = getNowTimeMillisecond()
+				rf.outTime = getRandTimeoutMillisecond()	//reset outtime for election 
+				rf.votedFor = rf.me		// vote self
+				rf.currentTerm = rf.currentTerm + 1
+				rf.mylog.DFprintf("election: timeout raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v\n", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
+
 				rf.mu.Unlock()
 				// start election
 				rf.checkChan <- struct{}{}
@@ -802,9 +818,7 @@ func (rf *Raft) stateTrans(){
 			select{
 			case <-rf.checkChan:
 				// turn to candiate
-				rf.mu.Lock()
-				rf.identity = CANDIATE
-				rf.mu.Unlock()
+		
 			}
 			break
 		case CANDIATE:
@@ -832,6 +846,8 @@ func (rf *Raft) stateTrans(){
 
 			rf.mu.Unlock()
 			rf.heartBeats()
+			time.Sleep(time.Duration(rf.constAppendTime) * time.Millisecond)
+
 			break
 		}
 	}
@@ -858,7 +874,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.identity = FOLLOWER
 	rf.startTime = getNowTimeMillisecond()
 	rf.outTime = getRandTimeoutMillisecond()
-	rf.constCheckTime = 40	//ms
+	rf.constCheckTime = 20	//ms
 	rf.constAppendTime = 100	//ms
 
 	rf.currentTerm = 0

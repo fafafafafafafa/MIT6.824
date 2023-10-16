@@ -3,6 +3,7 @@ package raft
 import "log"
 import "io"
 import "fmt"
+import "runtime/pprof"
 // Debugging
 const Debug = true
 
@@ -27,6 +28,10 @@ func (mylog *Mylog)DFprintf(format string, a ...interface{}) (n int, err error) 
 	}
 	return
 }
+func (mylog *Mylog)GoroutineStack(){
+	_ = pprof.Lookup("goroutine").WriteTo(mylog.W, 1)
+}
+
 func DPrintAllRafts(rafts []*Raft, connected []bool){
 	if Debug{
 	log.Println("^^^^^^^^print all rafts info^^^^^^^^")
@@ -40,3 +45,5 @@ func DPrintAllRafts(rafts []*Raft, connected []bool){
 	log.Println("^^^^^^^^print all rafts info^^^^^^^^")
 	}
 }
+
+

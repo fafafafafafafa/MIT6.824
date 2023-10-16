@@ -305,6 +305,7 @@ func (cfg *config) cleanup() {
 		}
 	}
 	cfg.net.Cleanup()
+	cfg.mylog.DFprintf("close cfg!\n")
 	cfg.checkTimeout()
 }
 

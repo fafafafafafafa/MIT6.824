@@ -17,6 +17,7 @@ import "sync"
 import "os"
 import "flag"
 import "strconv"
+// import "go.uber.org/goleak"
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
@@ -204,9 +205,10 @@ func TestBasicAgree2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		servers := 3
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): basic agreement")
 
@@ -224,7 +226,9 @@ func TestBasicAgree2B(t *testing.T) {
 		}
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+ 
 	}
 	
 }
@@ -266,9 +270,10 @@ func TestRPCBytes2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		servers := 3
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): RPC byte count")
 
@@ -294,7 +299,9 @@ func TestRPCBytes2B(t *testing.T) {
 		}
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		 
 	}
 
 	
@@ -333,9 +340,10 @@ func TestFailAgree2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		servers := 3
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): agreement despite follower disconnection")
 
@@ -364,7 +372,9 @@ func TestFailAgree2B(t *testing.T) {
 		cfg.one(107, servers, true)
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		
 	}
 	
 }
@@ -381,6 +391,7 @@ func TestFailNoAgree2B(t *testing.T) {
 		DPrintf("%v \n", err)
 	}
 	for i := 0; i < nums; i++{
+		
 		dir := "./logs2B/TestFailNoAgree2B"
 		if _, err := os.Stat(dir); os.IsNotExist(err) {
 			// 必须分成两步：先创建文件夹、再修改权限
@@ -402,9 +413,10 @@ func TestFailNoAgree2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		servers := 5
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): no agreement if too many followers disconnect")
 
@@ -450,12 +462,100 @@ func TestFailNoAgree2B(t *testing.T) {
 		cfg.one(1000, servers, true)
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		
 	}
-
 	
 }
 
+// func TestFailNoAgree2B(t *testing.T) {
+// 	// defer goleak.VerifyNone(t)
+
+// 	argList := flag.Args()
+	
+// 	arg := "-1"
+// 	if len(argList) == 1{
+// 		arg = argList[0]
+// 	}
+// 	i, err := strconv.Atoi(arg)
+// 	if err != nil{
+// 		DPrintf("%v \n", err)
+// 	}
+// 	dir := "./logs2B/TestFailNoAgree2B"
+// 	if _, err := os.Stat(dir); os.IsNotExist(err) {
+// 		// 必须分成两步：先创建文件夹、再修改权限
+// 		os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+// 		os.Chmod(dir, 0777)
+// 	}
+// 	filename := fmt.Sprintf("%v/%v.txt", dir, i)
+// 	w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+	
+// 	if err != nil{
+// 		DPrintf("%v \n", err)
+// 		return 
+// 	}
+// 	mylog := Mylog{
+// 		W: w,
+// 		Debug: true,
+// 	}
+// 	err = w.Truncate(0)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	mylog.DFprintf("file: %v\n", filename)
+// 	mylog.GoroutineStack()
+// 	servers := 5
+// 	cfg := make_config(t, servers, false, false, &mylog)
+// 	defer cfg.cleanup()
+
+// 	cfg.begin("Test (2B): no agreement if too many followers disconnect")
+
+// 	cfg.one(10, servers, false)
+
+// 	// 3 of 5 followers disconnect
+// 	leader := cfg.checkOneLeader()
+// 	cfg.disconnect((leader + 1) % servers)
+// 	cfg.disconnect((leader + 2) % servers)
+// 	cfg.disconnect((leader + 3) % servers)
+
+// 	index, _, ok := cfg.rafts[leader].Start(20)
+// 	if ok != true {
+// 		t.Fatalf("leader rejected Start()")
+// 	}
+// 	if index != 2 {
+// 		t.Fatalf("expected index 2, got %v", index)
+// 	}
+
+// 	time.Sleep(2 * RaftElectionTimeout)
+
+// 	n, _ := cfg.nCommitted(index)
+// 	if n > 0 {
+// 		t.Fatalf("%v committed but no majority", n)
+// 	}
+
+// 	// repair
+// 	cfg.connect((leader + 1) % servers)
+// 	cfg.connect((leader + 2) % servers)
+// 	cfg.connect((leader + 3) % servers)
+
+// 	// the disconnected majority may have chosen a leader from
+// 	// among their own ranks, forgetting index 2.
+// 	leader2 := cfg.checkOneLeader()
+// 	index2, _, ok2 := cfg.rafts[leader2].Start(30)
+// 	if ok2 == false {
+// 		t.Fatalf("leader2 rejected Start()")
+// 	}
+// 	if index2 < 2 || index2 > 3 {
+// 		t.Fatalf("unexpected index %v", index2)
+// 	}
+
+// 	cfg.one(1000, servers, true)
+
+// 	cfg.end()
+		
+// }
+ 
 func TestConcurrentStarts2B(t *testing.T) {
 	argList := flag.Args()
 	
@@ -489,9 +589,10 @@ func TestConcurrentStarts2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		servers := 3
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): concurrent Start()s")
 
@@ -587,7 +688,9 @@ func TestConcurrentStarts2B(t *testing.T) {
 		}
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		
 	}
 
 	
@@ -628,10 +731,10 @@ func TestRejoin2B(t *testing.T) {
 			panic(err)
 		}
 		mylog.DFprintf("file %v\n", i)
-
+		mylog.GoroutineStack()
 		servers := 3
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 	
 		cfg.begin("Test (2B): rejoin of partitioned leader")
 		mylog.DFprintf("Test (2B): rejoin of partitioned leader\n")
@@ -669,7 +772,9 @@ func TestRejoin2B(t *testing.T) {
 		cfg.one(105, servers, true)
 	
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		
 	} 
 	
 }
@@ -708,11 +813,12 @@ func TestBackup2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		// for test 50
 		count := 50
 		servers := 5
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): leader backs up quickly over incorrect follower logs")
 		mylog.DFprintf("Test (2B): leader backs up quickly over incorrect follower logs\n")
@@ -732,12 +838,16 @@ func TestBackup2B(t *testing.T) {
 		cfg.disconnect((leader1 + 4) % servers)
 		// DPrintf("---------test: raft %v, disconnect---------\n", (leader1 + 4) % servers)
 		mylog.DFprintf("---------test: raft %v, disconnect---------\n", (leader1 + 4) % servers)
+
+		
 		// submit lots of commands that won't commit
 		for i := 0; i < count; i++ {
+			mylog.GoroutineStack()
 			cfg.rafts[leader1].Start(rand.Int())
 		}
 
 		time.Sleep(RaftElectionTimeout / 2)
+		 
 
 		cfg.disconnect((leader1 + 0) % servers)
 		// DPrintf("---------test: raft %v disconnect---------\n", (leader1 + 0) % servers)
@@ -756,10 +866,12 @@ func TestBackup2B(t *testing.T) {
 		// DPrintf("---------test: raft %v connect---------\n", (leader1 + 4) % servers)
 		mylog.DFprintf("---------test: raft %v connect---------\n", (leader1 + 4) % servers)
 		// lots of successful commands to new group.
+		
 		for i := 0; i < count; i++ {
+			mylog.GoroutineStack()
 			cfg.one(rand.Int(), 3, true)
 		}
-
+		
 		// now another partitioned leader and one follower
 		leader2 := cfg.checkOneLeader()
 		// DPrintf("---------test: raft %v become the leader---------\n", leader2)
@@ -773,8 +885,10 @@ func TestBackup2B(t *testing.T) {
 		mylog.DFprintf("---------test: raft %v disconnect---------\n", other)
 		// lots more commands that won't commit
 		for i := 0; i < count; i++ {
+			mylog.GoroutineStack()
 			cfg.rafts[leader2].Start(rand.Int())
 		}
+		mylog.GoroutineStack()
 
 		time.Sleep(RaftElectionTimeout / 2)
 
@@ -795,6 +909,7 @@ func TestBackup2B(t *testing.T) {
 		mylog.DFprintf("---------test: raft %v connect---------\n", other)
 		// lots of successful commands to new group.
 		for i := 0; i < count; i++ {
+			mylog.GoroutineStack()
 			cfg.one(rand.Int(), 3, true)
 		}
 
@@ -807,7 +922,9 @@ func TestBackup2B(t *testing.T) {
 		cfg.one(rand.Int(), servers, true)
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		
 	}
 	
 }
@@ -845,9 +962,10 @@ func TestCount2B(t *testing.T) {
 		if err != nil {
 			panic(err)
 		}
+		mylog.GoroutineStack()
 		servers := 3
 		cfg := make_config(t, servers, false, false, &mylog)
-		defer cfg.cleanup()
+		// defer cfg.cleanup()
 
 		cfg.begin("Test (2B): RPC counts aren't too high")
 
@@ -952,7 +1070,9 @@ func TestCount2B(t *testing.T) {
 		}
 
 		cfg.end()
+		cfg.cleanup()
 		w.Close()
+		
 	}
 	
 }
