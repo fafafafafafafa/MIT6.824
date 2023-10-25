@@ -1403,10 +1403,13 @@ func Figure82C(t *testing.T, mylog *Mylog) {
 
 		if (rand.Int() % 1000) < 100 {
 			ms := rand.Int63() % (int64(RaftElectionTimeout/time.Millisecond) / 2)
+			cfg.mylog.DFprintf("--------------sleep time %v ms--------------\n", ms)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		} else {
 			ms := (rand.Int63() % 13)
+			cfg.mylog.DFprintf("--------------sleep time %v ms--------------\n", ms)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
+			
 		}
 
 		if leader != -1 {
