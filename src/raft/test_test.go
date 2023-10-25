@@ -1077,20 +1077,50 @@ func TestCount2B(t *testing.T) {
 	
 }
 
-func TestPersist12C(t *testing.T) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestPersist12C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestPersist12C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Persist12C(t, &mylog)
+		w.Close()
 	}
+	
+}
+func Persist12C(t *testing.T, mylog *Mylog) {
+
+	mylog.GoroutineStack()
 
 	servers := 3
-	cfg := make_config(t, servers, false, false, &mylog)
+	cfg := make_config(t, servers, false, false, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2C): basic persistence")
@@ -1134,20 +1164,50 @@ func TestPersist12C(t *testing.T) {
 	cfg.end()
 }
 
-func TestPersist22C(t *testing.T) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestPersist22C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestPersist22C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Persist22C(t, &mylog)
+		w.Close()
 	}
+	
+}
+func Persist22C(t *testing.T, mylog *Mylog) {
+	
+	mylog.GoroutineStack()
 
 	servers := 5
-	cfg := make_config(t, servers, false, false, &mylog)
+	cfg := make_config(t, servers, false, false, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2C): more persistence")
@@ -1190,21 +1250,49 @@ func TestPersist22C(t *testing.T) {
 
 	cfg.end()
 }
-
-func TestPersist32C(t *testing.T) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestPersist32C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestPersist32C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Persist32C(t, &mylog)
+		w.Close()
 	}
-
+	
+}
+func Persist32C(t *testing.T, mylog *Mylog) {
+	
+	mylog.GoroutineStack()
 	servers := 3
-	cfg := make_config(t, servers, false, false, &mylog)
+	cfg := make_config(t, servers, false, false, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2C): partitioned leader and one follower crash, leader restarts")
@@ -1212,24 +1300,33 @@ func TestPersist32C(t *testing.T) {
 	cfg.one(101, 3, true)
 
 	leader := cfg.checkOneLeader()
+	cfg.mylog.DFprintf("--------------raft %v disconnected------------------------\n", (leader + 2) % servers)
 	cfg.disconnect((leader + 2) % servers)
 
 	cfg.one(102, 2, true)
 
+	cfg.mylog.DFprintf("--------------raft %v crashed------------------------\n", (leader + 0) % servers)
 	cfg.crash1((leader + 0) % servers)
+	cfg.mylog.DFprintf("--------------raft %v crashed------------------------\n", (leader + 1) % servers)
 	cfg.crash1((leader + 1) % servers)
+	cfg.mylog.DFprintf("--------------raft %v connected------------------------\n", (leader + 2) % servers)
 	cfg.connect((leader + 2) % servers)
+	cfg.mylog.DFprintf("--------------raft %v started------------------------\n", (leader + 0) % servers)
 	cfg.start1((leader+0)%servers, cfg.applier)
+	cfg.mylog.DFprintf("--------------raft %v connected------------------------\n", (leader + 0) % servers)
 	cfg.connect((leader + 0) % servers)
 
 	cfg.one(103, 2, true)
 
+	cfg.mylog.DFprintf("--------------raft %v started------------------------\n", (leader + 1) % servers)
 	cfg.start1((leader+1)%servers, cfg.applier)
+	cfg.mylog.DFprintf("--------------raft %v connected------------------------\n", (leader + 1) % servers)
 	cfg.connect((leader + 1) % servers)
 
 	cfg.one(104, servers, true)
 
 	cfg.end()
+	
 }
 
 //
@@ -1242,20 +1339,49 @@ func TestPersist32C(t *testing.T) {
 // The leader in a new term may try to finish replicating log entries that
 // haven't been committed yet.
 //
-func TestFigure82C(t *testing.T) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestFigure82C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestFigure82C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Figure82C(t, &mylog)
+		w.Close()
 	}
-
+	
+}
+func Figure82C(t *testing.T, mylog *Mylog) {
+	
+	mylog.GoroutineStack()
 	servers := 5
-	cfg := make_config(t, servers, false, false, &mylog)
+	cfg := make_config(t, servers, false, false, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2C): Figure 8")
@@ -1267,6 +1393,7 @@ func TestFigure82C(t *testing.T) {
 		leader := -1
 		for i := 0; i < servers; i++ {
 			if cfg.rafts[i] != nil {
+				cfg.mylog.DFprintf("--------------raft %v is alive------------------------\n", (i) % servers)
 				_, _, ok := cfg.rafts[i].Start(rand.Int())
 				if ok {
 					leader = i
@@ -1283,6 +1410,8 @@ func TestFigure82C(t *testing.T) {
 		}
 
 		if leader != -1 {
+			cfg.mylog.DFprintf("--------------raft %v crashed------------------------\n", (leader) % servers)
+
 			cfg.crash1(leader)
 			nup -= 1
 		}
@@ -1290,6 +1419,8 @@ func TestFigure82C(t *testing.T) {
 		if nup < 3 {
 			s := rand.Int() % servers
 			if cfg.rafts[s] == nil {
+				cfg.mylog.DFprintf("--------------raft %v started and connect------------------------\n", (s) % servers)
+
 				cfg.start1(s, cfg.applier)
 				cfg.connect(s)
 				nup += 1
@@ -1299,6 +1430,8 @@ func TestFigure82C(t *testing.T) {
 
 	for i := 0; i < servers; i++ {
 		if cfg.rafts[i] == nil {
+			cfg.mylog.DFprintf("--------------raft %v started and connect------------------------\n", (i) % servers)
+
 			cfg.start1(i, cfg.applier)
 			cfg.connect(i)
 		}
@@ -1308,21 +1441,49 @@ func TestFigure82C(t *testing.T) {
 
 	cfg.end()
 }
-
-func TestUnreliableAgree2C(t *testing.T) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestUnreliableAgree2C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestUnreliableAgree2C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		UnreliableAgree2C(t, &mylog)
+		w.Close()
 	}
+	
+}
+func UnreliableAgree2C(t *testing.T, mylog *Mylog) {
+	mylog.GoroutineStack()
 
 	servers := 5
-	cfg := make_config(t, servers, true, false, &mylog)
+	cfg := make_config(t, servers, true, false, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2C): unreliable agreement")
@@ -1348,21 +1509,48 @@ func TestUnreliableAgree2C(t *testing.T) {
 
 	cfg.end()
 }
-
-func TestFigure8Unreliable2C(t *testing.T) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestFigure8Unreliable2C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestFigure8Unreliable2C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Figure8Unreliable2C(t, &mylog)
+		w.Close()
 	}
-
+	
+}
+func Figure8Unreliable2C(t *testing.T, mylog *Mylog) {
+	mylog.GoroutineStack()
 	servers := 5
-	cfg := make_config(t, servers, true, false, &mylog)
+	cfg := make_config(t, servers, true, false, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin("Test (2C): Figure 8 (unreliable)")
@@ -1414,21 +1602,49 @@ func TestFigure8Unreliable2C(t *testing.T) {
 
 	cfg.end()
 }
-
-func internalChurn(t *testing.T, unreliable bool) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
+func TestReliableChurn2C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
 	if err != nil{
 		DPrintf("%v \n", err)
-		return 
 	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestReliableChurn2C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		ReliableChurn2C(t, &mylog)
+		w.Close()
 	}
+	
+}
+func internalChurn(t *testing.T, unreliable bool, mylog *Mylog) {
+	mylog.GoroutineStack()
 
 	servers := 5
-	cfg := make_config(t, servers, unreliable, false, &mylog)
+	cfg := make_config(t, servers, unreliable, false, mylog)
 	defer cfg.cleanup()
 
 	if unreliable {
@@ -1570,12 +1786,49 @@ func internalChurn(t *testing.T, unreliable bool) {
 	cfg.end()
 }
 
-func TestReliableChurn2C(t *testing.T) {
-	internalChurn(t, false)
+func ReliableChurn2C(t *testing.T, mylog *Mylog) {
+	internalChurn(t, false, mylog)
 }
-
-func TestUnreliableChurn2C(t *testing.T) {
-	internalChurn(t, true)
+func TestUnreliableChurn2C(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs2C/TestUnreliableChurn2C"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		UnreliableChurn2C(t, &mylog)
+		w.Close()
+	}
+	
+}
+func UnreliableChurn2C(t *testing.T, mylog *Mylog) {
+	internalChurn(t, true, mylog)
 }
 
 const MAXLOGSIZE = 2000

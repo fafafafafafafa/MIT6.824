@@ -18,14 +18,15 @@ package raft
 //
 
 import (
-//	"bytes"
+	"bytes"
 	"sync"
 	"sync/atomic"
 
-//	"6.824/labgob"
+	"6.824/labgob"
 	"6.824/labrpc"
 	"time"
 	"math/rand"
+
 
 )
 
@@ -133,6 +134,16 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// data := w.Bytes()
 	// rf.persister.SaveRaftState(data)
+	rf.mylog.DFprintf("persist: save raft: %v, rf.currentTerm: %v, rf.votedFor: %v, len of rf.log: %v \n",
+	rf.me, rf.currentTerm, rf.votedFor, len(rf.log))
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 
@@ -156,6 +167,24 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var log map[int]LogEntry
+	if d.Decode(&currentTerm) != nil ||
+	   d.Decode(&votedFor) != nil||
+	   d.Decode(&log) !=nil {
+		rf.mylog.DFprintf("readPersist: decode failed! \n")
+	} else {
+	  rf.currentTerm = currentTerm
+	  rf.votedFor = votedFor
+	  rf.log = log
+	  
+	  rf.mylog.DFprintf("readPersist: load raft:%v , rf.currentTerm: %v, rf.votedFor: %v, len of rf.log: %v \n", 
+	  rf.me, rf.currentTerm, rf.votedFor, len(rf.log))
+	}
 }
 
 
@@ -219,6 +248,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply){
 		rf.currentTerm = args.Term
 		rf.identity = FOLLOWER
 		rf.votedFor = -1
+		rf.persist()
 		// rf.outTime = getRandTimeoutMillisecond()
 		// rf.startTime = getNowTimeMillisecond()
 		rf.mylog.DFprintf("RequestVote: raft %v, has been reset to follower, from term %v to %v, votedfor %v to %v, startTime: %v, outTime: %v\n", 
@@ -279,9 +309,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		
 		rf.startTime = getNowTimeMillisecond()
 		rf.outTime = getRandTimeoutMillisecond()
-		// rf.votedFor = -1
+
+		rf.votedFor = -1
 		rf.currentTerm = args.Term
 		rf.identity = FOLLOWER
+		rf.persist()
 
 		rf.mylog.DFprintf("AppendEntries: raft: %v to raft: %v, args.PrevLogIndex: %v to rf: %v, args.PrevLogTerm: %v to rf: %v, len of entries: %v, \n",
 		args.LeaderId, rf.me, args.PrevLogIndex, rf.log[len(rf.log)].Index, args.PrevLogTerm, rf.log[len(rf.log)].Term, len(args.Entries))
@@ -325,6 +357,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				}
 	
 			}
+			rf.persist()
 			rf.applyCond.Broadcast()
 		}else{
 			reply.Success = false
@@ -342,77 +375,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			 
 		}
 		
-		// has new entry
-		// if len(args.Entries) > 0{
-		// 	if args.PrevLogIndex <= 0{
-		// 		// len of leader's log is 1 , and len of follower's must be 0, if not, overwrite follower
-		// 		// l := len(rf.log)
-		// 		// if l > 0 {
-		// 		// 	rf.log = make(map[int]LogEntry, 0)
-		// 		// }
-		// 		rf.log = make(map[int]LogEntry, 0)
-		// 		for _, entry := range args.Entries{
-		// 			rf.log[entry.Index] = entry
-		// 			// DPrintf("AppendEntries: cmd(%v) is appended, raft: %v, index: %v, len of log %v\n", entry.Command, rf.me, entry.Index, len(rf.log))
-		// 			rf.mylog.DFprintf("AppendEntries: cmd(%v) is appended, raft: %v, index: %v, len of log %v\n", entry.Command, rf.me, entry.Index, len(rf.log))
-		// 		}
-		// 		reply.Success = true
-				
-		// 	}else {
-		// 		// len of leader's log is greater than 2
-				
-		// 		e, ok := rf.log[args.PrevLogIndex]
-				
-		// 		// if ok && args.PrevLogIndex == len(rf.log) && e.Term == args.PrevLogTerm{
-		// 		if ok && e.Term == args.PrevLogTerm{
-		// 			for i := args.PrevLogIndex + 1; ; i++{
-		// 				ee, okk := rf.log[i]
-		// 				if okk{
-		// 					l := len(rf.log)
-		// 					delete(rf.log, i)
-		// 					rf.mylog.DFprintf("AppendEntries: cmd(%v) is deleted, raft: %v, index: %v, len of log %v to %v\n", 
-		// 					ee.Command, rf.me, ee.Index, l, len(rf.log))
-		// 				}else{
-		// 					break
-		// 				}
-		// 			}
-
-		// 			for _, entry := range args.Entries{
-		// 				rf.log[entry.Index] = entry
-		// 				// DPrintf("AppendEntries: cmd(%v) is appended, raft: %v, index: %v, len of log %v\n", entry.Command, rf.me, entry.Index, len(rf.log))
-		// 				rf.mylog.DFprintf("AppendEntries: cmd(%v) is appended, raft: %v, index: %v, len of log %v\n", entry.Command, rf.me, entry.Index, len(rf.log))
-		// 			}
-		// 			reply.Success = true
-
-		// 		}
-				
-		// 	}
-		// }else{
-		// 	e, ok := rf.log[args.PrevLogIndex]
-		// 	if (args.PrevLogIndex <= 0 && len(rf.log)==0) || (ok && args.PrevLogIndex == len(rf.log) && e.Term == args.PrevLogTerm){
-		// 		reply.Success = true
-
-		// 		for args.LeaderCommit > rf.commitIndex{
-		// 			rf.commitIndex = rf.commitIndex + 1
-		// 			_, ok := rf.log[rf.commitIndex]
-		// 			if !ok{
-		// 				rf.commitIndex = rf.commitIndex - 1
-		// 				break
-		// 			}
-		// 			// DPrintf("AppendEntries: cmd(%v) is committed, raft: %v, commitIndex: %v\n", rf.log[rf.commitIndex].Command, rf.me, rf.commitIndex)
-		// 			// rf.mylog.DFprintf("AppendEntries: cmd(%v) is committed, raft: %v, commitIndex: %v, len of log: %v\n", 
-		// 			// rf.log[rf.commitIndex].Command, rf.me, rf.commitIndex, len(rf.log))
-		// 			// rf.applyCh <- ApplyMsg{
-		// 			// 	CommandValid: ok,
-		// 			// 	Command: entry.Command,
-		// 			// 	CommandIndex: rf.commitIndex,
-		// 			// }	// may be dead locked !!!
-		// 		}
-		// 		rf.applyCond.Broadcast()
-		// 	}
 		
-			
-		// }
 	}
 	
 }
@@ -489,7 +452,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.log[index] = logentry
 		// DPrintf("Start: cmd(%v) is append, raft: %v, index: %v, len of log: %v\n", command, rf.me, index, len(rf.log))
 		rf.mylog.DFprintf("Start: cmd(%v) is append, raft: %v, index: %v, len of log: %v\n", command, rf.me, index, len(rf.log))
-
+		rf.persist()
 		// go rf.heartBeats()
 		
 	}else{
@@ -579,6 +542,7 @@ func (rf *Raft) election(){
 						rf.votedFor = -1
 						rf.startTime = getNowTimeMillisecond()
 						rf.outTime = getRandTimeoutMillisecond()
+						rf.persist()
 						
 					}else{
 						if reply.VoteGranted{
@@ -672,6 +636,8 @@ func (rf *Raft) heartBeats(){
 							rf.currentTerm = reply.Term
 							rf.startTime = getNowTimeMillisecond()
 							rf.outTime = getRandTimeoutMillisecond()
+
+							rf.persist()
 							// DPrintf("heartBeats: raft: %v return to follower, currentTerm is %v\n", rf.me, rf.currentTerm)
 							rf.mylog.DFprintf("heartBeats: raft: %v return to follower, currentTerm is %v\n", rf.me, rf.currentTerm)
 			
@@ -790,6 +756,8 @@ func (rf *Raft) ticker() {
 				rf.outTime = getRandTimeoutMillisecond()	//reset outtime for election 
 				rf.votedFor = rf.me		// vote self
 				rf.currentTerm = rf.currentTerm + 1
+
+				rf.persist()
 				rf.mylog.DFprintf("election: timeout raft : rf.me=%v, rf.term=%v, rf.identity=%v\n, rf.outTime=%v, rf.startTime=%v\n", rf.me, rf.currentTerm, rf.identity, rf.outTime, rf.startTime)
 
 				rf.mu.Unlock()

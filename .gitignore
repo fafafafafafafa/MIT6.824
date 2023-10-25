@@ -7,4 +7,5 @@ src/main/temp-*
 src/main/mr-out*
 src/mrapps/*.so
 src/raft/logs2B
-
+src/raft/logs2C
+src/raft/log.txt
