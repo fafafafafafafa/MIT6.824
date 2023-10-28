@@ -33,7 +33,7 @@ func GetNewQueue() *LinkedList{
 }
 func (l *LinkedList) GetLen() int{
 	l.mu.Lock()
-	l.mu.Unlock()
+	defer l.mu.Unlock()
 	return l.count
 }
 func (l *LinkedList) AddTail(t *TaskState){
