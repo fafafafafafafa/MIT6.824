@@ -8,4 +8,5 @@ src/main/mr-out*
 src/mrapps/*.so
 src/raft/logs2B
 src/raft/logs2C
+src/raft/logs2D
 src/raft/log.txt

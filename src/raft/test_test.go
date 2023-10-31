@@ -1836,21 +1836,11 @@ func UnreliableChurn2C(t *testing.T, mylog *Mylog) {
 
 const MAXLOGSIZE = 2000
 
-func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash bool) {
-	w, err := os.OpenFile("./log.txt", os.O_WRONLY|os.O_CREATE, 0666)
-	defer w.Close()
-	if err != nil{
-		DPrintf("%v \n", err)
-		return 
-	}
-	mylog := Mylog{
-		W: w,
-		Debug: true,
-	}
+func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash bool, mylog *Mylog) {
 	
 	iters := 30
 	servers := 3
-	cfg := make_config(t, servers, !reliable, true, &mylog)
+	cfg := make_config(t, servers, !reliable, true, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin(name)
@@ -1865,12 +1855,14 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			sender = (leader1 + 1) % servers
 			victim = leader1
 		}
-
+		mylog.DFprintf("*********iters: %v, victim: %v, sender: %v *********\n", i, victim, sender)
 		if disconnect {
+			mylog.DFprintf("*********iters: %v, victim: %v, sender: %v, raft: %v disconnect *********\n", i, victim, sender, victim)
 			cfg.disconnect(victim)
 			cfg.one(rand.Int(), servers-1, true)
 		}
 		if crash {
+			mylog.DFprintf("*********iters: %v, victim: %v, sender: %v, raft: %v crash *********\n", i, victim, sender, victim)
 			cfg.crash1(victim)
 			cfg.one(rand.Int(), servers-1, true)
 		}
@@ -1887,11 +1879,14 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 		if disconnect {
 			// reconnect a follower, who maybe behind and
 			// needs to rceive a snapshot to catch up.
+			mylog.DFprintf("*********iters: %v, victim: %v, sender: %v, raft: %v connect *********\n", i, victim, sender, victim)
+
 			cfg.connect(victim)
 			cfg.one(rand.Int(), servers, true)
 			leader1 = cfg.checkOneLeader()
 		}
 		if crash {
+			mylog.DFprintf("*********iters: %v, victim: %v, sender: %v, raft: %v start *********\n", i, victim, sender, victim)
 			cfg.start1(victim, cfg.applierSnap)
 			cfg.connect(victim)
 			cfg.one(rand.Int(), servers, true)
@@ -1902,22 +1897,192 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 }
 
 func TestSnapshotBasic2D(t *testing.T) {
-	snapcommon(t, "Test (2D): snapshots basic", false, true, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs2D/TestSnapshotBasic2D"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		snapcommon(t, "Test (2D): snapshots basic", false, true, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestSnapshotInstall2D(t *testing.T) {
-	snapcommon(t, "Test (2D): install snapshots (disconnect)", true, true, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs2D/TestSnapshotInstall2D"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		snapcommon(t, "Test (2D): install snapshots (disconnect)", true, true, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestSnapshotInstallUnreliable2D(t *testing.T) {
-	snapcommon(t, "Test (2D): install snapshots (disconnect+unreliable)",
-		true, false, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs2D/TestSnapshotInstallUnreliable2D"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		snapcommon(t, "Test (2D): install snapshots (disconnect+unreliable)",
+			true, false, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestSnapshotInstallCrash2D(t *testing.T) {
-	snapcommon(t, "Test (2D): install snapshots (crash)", false, true, true)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs2D/TestSnapshotInstallCrash2D"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		snapcommon(t, "Test (2D): install snapshots (crash)", false, true, true, &mylog)
+		w.Close()
+	}
 }
 
 func TestSnapshotInstallUnCrash2D(t *testing.T) {
-	snapcommon(t, "Test (2D): install snapshots (unreliable+crash)", false, false, true)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs2D/TestSnapshotInstallUnCrash2D"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		snapcommon(t, "Test (2D): install snapshots (unreliable+crash)", false, false, true, &mylog)
+		w.Close()
+	}
 }

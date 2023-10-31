@@ -141,8 +141,8 @@ func (cfg *config) checkLogs(i int, m ApplyMsg) (string, bool) {
 	v := m.Command
 	for j := 0; j < len(cfg.logs); j++ {
 		if old, oldok := cfg.logs[j][m.CommandIndex]; oldok && old != v {
-			log.Printf("%v: log %v;\n server %v, log: %v\n", i, cfg.logs[i], j, cfg.logs[j])
-			cfg.mylog.DFprintf("%v: log %v;\n server %v, log: %v\n", i, cfg.logs[i], j, cfg.logs[j])
+			log.Printf("checkLogs: %v: log %v;\nserver %v, log: %v\n", i, cfg.logs[i], j, cfg.logs[j])
+			cfg.mylog.DFprintf("checkLogs: %v: log %v;\nserver %v, log: %v\n", i, cfg.logs[i], j, cfg.logs[j])
 			// some server has already committed a different value for this entry!
 			err_msg = fmt.Sprintf("commit index=%v server=%v %v != server=%v %v",
 				m.CommandIndex, i, m.Command, j, old)

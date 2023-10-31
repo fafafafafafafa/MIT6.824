@@ -9,125 +9,119 @@ type Entry struct{
 	Command interface{}	// command from state machine
 }
 
-type MapLog struct{
+type ListLog struct{
 	mu sync.Mutex
 	mylog *Mylog
 	logEntry []Entry
 
 }
 
-func GetMapLog(mylog *Mylog) *MapLog{
+func GetListLog(mylog *Mylog) *ListLog{
 	
-	var maplog *MapLog
-	maplog = &MapLog{}
-	maplog.mylog = mylog
+	var listLog *ListLog
+	listLog = &ListLog{}
+	listLog.mylog = mylog
 
 	e := Entry{
 		Index: 0,
 		Term: 0,
 		Command: -1,
 	}
-	maplog.logEntry = append(maplog.logEntry, e)
+	listLog.logEntry = append(listLog.logEntry, e)
 
-	return maplog
+	return listLog
 }
 
-func (maplog *MapLog) GetFirstIndex() int {
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	
-	return 0
-}
 
-func (maplog *MapLog) DeleteEntriesBeforeIndex(index int) {
-	// include index
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	if index < 0 || index > len(maplog.logEntry)-1{
+func (listLog *ListLog) DeleteEntriesBeforeIndex(index int) {
+	// not include index
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	if index < 0 || index > len(listLog.logEntry)-1{
 		// errMsg := error.New("index illegal! index(%v) \n", index)
-		errMsg := fmt.Sprintf("DeleteEntriesBeforeIndex: index illegal! index = %v \n", index)
-		maplog.mylog.DFprintf(errMsg)
+		errMsg := fmt.Sprintf("listLog.DeleteEntriesBeforeIndex: index illegal! index = %v \n", index)
+		listLog.mylog.DFprintf(errMsg)
 		log.Fatal(errMsg)
 	}else{
-		maplog.logEntry = append(maplog.logEntry[:1], maplog.logEntry[index+1:]...)
+		listLog.logEntry = listLog.logEntry[index:]
 	}
 }
 
 
-func (maplog *MapLog) DeleteEntriesAfterIndex(index int) {
+func (listLog *ListLog) DeleteEntriesAfterIndex(index int) {
 	// include index
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	if index < 0 || index > len(maplog.logEntry)-1{
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	if index < 0 || index > len(listLog.logEntry)-1{
 		
 	}else{
 		
-		maplog.logEntry = maplog.logEntry[:index]
+		listLog.logEntry = listLog.logEntry[:index]
 
 	}
 }
 
-func (maplog *MapLog) Append(entries Entry) {
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	l := len(maplog.logEntry)
-	maplog.logEntry = append(maplog.logEntry, entries)
+func (listLog *ListLog) Append(entries Entry) {
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	l := len(listLog.logEntry)
+	listLog.logEntry = append(listLog.logEntry, entries)
 
-	maplog.mylog.DFprintf("Append: len of log from %v to %v", l, len(maplog.logEntry))
+	listLog.mylog.DFprintf("listLog.Append: len of log from %v to %v\n", l, len(listLog.logEntry))
 	 
 }
 
-func (maplog *MapLog) AppendEntries(entries []Entry) {
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	l := len(maplog.logEntry)
-	maplog.logEntry = append(maplog.logEntry, entries...)
+func (listLog *ListLog) AppendEntries(entries []Entry) {
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	l := len(listLog.logEntry)
+	listLog.logEntry = append(listLog.logEntry, entries...)
 
-	maplog.mylog.DFprintf("AppendEntries: len of log from %v to %v", l, len(maplog.logEntry))
+	listLog.mylog.DFprintf("listLog.AppendEntries: len of log from %v to %v\n", l, len(listLog.logEntry))
 	 
 }
 
 
-func (maplog *MapLog) GetLen() int{
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	return len(maplog.logEntry)
+func (listLog *ListLog) GetLen() int{
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	return len(listLog.logEntry)
 
 }
 
-func (maplog *MapLog) GetLastEntry() Entry{
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	l := len(maplog.logEntry)
+func (listLog *ListLog) GetLastEntry() Entry{
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	l := len(listLog.logEntry)
 
-	return maplog.logEntry[l-1]
+	return listLog.logEntry[l-1]
 }
 
-func (maplog *MapLog) GetEntryFromIndex(index int) (Entry, bool) {
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
+func (listLog *ListLog) GetEntryFromIndex(index int) (Entry, bool) {
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
 	
-	if index < 0 || index > len(maplog.logEntry)-1{
+	if index < 0 || index > len(listLog.logEntry)-1{
 		// errMsg := error.New("index illegal! index(%v) \n", index)
 		
 		return Entry{}, false
 	}else{
-		e := maplog.logEntry[index]
+		e := listLog.logEntry[index]
 		return e, true
 	}
 	
 	
 }
 
-func (maplog *MapLog) GetEntriesAfterIndex(index int) []Entry{
+func (listLog *ListLog) GetEntriesAfterIndex(index int) []Entry{
 	// include index
-	maplog.mu.Lock()
-	defer maplog.mu.Unlock()
-	if index < 0 || index > len(maplog.logEntry)-1{
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	if index < 0 || index > len(listLog.logEntry)-1{
 		return []Entry{}
 	}else{
 		
-		return maplog.logEntry[index:]
+		return listLog.logEntry[index:]
 		
 	}
 }
