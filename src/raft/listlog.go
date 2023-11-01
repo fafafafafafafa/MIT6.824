@@ -1,7 +1,7 @@
 package raft
 import "sync"
-import "log"
-import "fmt"
+// import "log"
+// import "fmt"
 
 type Entry struct{
 	Index int	
@@ -39,9 +39,9 @@ func (listLog *ListLog) DeleteEntriesBeforeIndex(index int) {
 	defer listLog.mu.Unlock()
 	if index < 0 || index > len(listLog.logEntry)-1{
 		// errMsg := error.New("index illegal! index(%v) \n", index)
-		errMsg := fmt.Sprintf("listLog.DeleteEntriesBeforeIndex: index illegal! index = %v \n", index)
-		listLog.mylog.DFprintf(errMsg)
-		log.Fatal(errMsg)
+		// errMsg := fmt.Sprintf("listLog.DeleteEntriesBeforeIndex: index illegal! index = %v \n", index)
+		// listLog.mylog.DFprintf(errMsg)
+		// log.Fatal(errMsg)
 	}else{
 		listLog.logEntry = listLog.logEntry[index:]
 	}
@@ -49,7 +49,7 @@ func (listLog *ListLog) DeleteEntriesBeforeIndex(index int) {
 
 
 func (listLog *ListLog) DeleteEntriesAfterIndex(index int) {
-	// include index
+	// not include index
 	listLog.mu.Lock()
 	defer listLog.mu.Unlock()
 	if index < 0 || index > len(listLog.logEntry)-1{
@@ -125,3 +125,4 @@ func (listLog *ListLog) GetEntriesAfterIndex(index int) []Entry{
 		
 	}
 }
+

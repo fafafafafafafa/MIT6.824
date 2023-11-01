@@ -253,7 +253,8 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 	realIndex := index-rf.lastIncludedIndex
 	e, ok := rf.log.GetEntryFromIndex(realIndex)
-	if ok && e.Term != 0{
+	// if ok && e.Term != 0{
+	if ok{
 		rf.lastIncludedIndex = e.Index
 		rf.lastIncludedTerm = e.Term
 		rf.log.DeleteEntriesBeforeIndex(realIndex)

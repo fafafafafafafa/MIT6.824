@@ -69,4 +69,43 @@ AppendEntries(), rf为对应的follower
 		reply.ConflictIndex回退至 term不等于e.Term, 有好有坏	
 		reply.Success=false
 
-		
+
+--------------------------------2D--------------------------------
+lastIncludedTerm,  lastIncludedIndex 也需要进行持久化
+log的下标都需要进行修改，得使用 lastIncludedIndex+ len()-1这种的
+
+snapshot 就是 lastIncludedIndex对应的cmd，直接read就行，不需要自己生成
+
+当leader的lastIncludedIndex>=follower的nextIndex，就直接发InstallSnapshot(), 否则发送AppendEntries
+commitIndex>=lastIncludedIndex
+server重启后，rf.lastApplied 记得 更新， rf.lastApplied = rf.lastIncludedIndex, 不然，会从1开始重新apply，产生错误
+
+
+InstallSnapshot()
+	leader to follower， 使得滞后follower快速更新
+	接收信号， 将snapshot信号通过ApplyMsg 发送给service
+	
+
+Snapshot(index int, snapshot []byte)
+	snapshot里面只有index 对应的command 
+	service to raft, 通知raft剪裁log
+	step:
+	1. 获取index对应的真实下标, realIndex = index- rf.lastIncludedIndex
+	2. 对log进行裁剪，去掉index之前的部分
+	3. 保存snapshot（ cmd）
+	4. 更新持久化rf.lastIncludedTerm, rf.lastIncludedIndex, log, ....
+	
+
+CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte) bool
+	InstallSnapshot() 发送 ApplyMsg to service后
+	service to server， 告知server， service 将要转换到 传入的snapshot的状态
+	
+	step:
+	1. 若 lastIncludedTerm > rf.lastIncludedTerm || (lastIncludedTerm == rf.lastIncludedTerm && lastIncludedIndex> rf.lastIncludedIndex) 
+	则说明snapshot 是新的
+		2. 删除旧rf.log
+		3. 根据lastIncludedTerm 和 lastIncludedIndex 生成新的 rf.log
+		3. return true
+	4.否则，return false
+
+
