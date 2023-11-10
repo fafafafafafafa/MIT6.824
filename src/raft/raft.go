@@ -258,7 +258,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 		rf.lastIncludedIndex = e.Index
 		rf.lastIncludedTerm = e.Term
 		rf.log.DeleteEntriesBeforeIndex(realIndex)
-
+		
 		rf.persistStateAndSnapshot(snapshot)
 
 	}

@@ -108,4 +108,11 @@ CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int, snapshot []byte
 		3. return true
 	4.否则，return false
 
+----------------------------------------labrpc.go-------------------------------------------
+Network: 
+ClientEnd:
+Service: 包含raft的method，AppendEntries/InstallSnapshot/RequestVote
+Server: 包含Service
+Raft：包含ClientEnds
 
+ClientEnd->Server->Service->method

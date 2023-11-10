@@ -460,7 +460,7 @@ func MakeService(rcvr interface{}) *Service {
 
 		// fmt.Printf("%v, pp %v, ni %v, 1k %v, 2k %v, no %v\n",
 		// mname, method.PkgPath, mtype.NumIn(), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
-
+		// fmt.Printf("name: %v, mname: %v, ni: %v, no: %v\n", svc.name, mname, mtype.NumIn(), mtype.NumOut())
 		if method.PkgPath != "" || // capitalized?
 			mtype.NumIn() != 3 ||
 			//mtype.In(1).Kind() != reflect.Ptr ||
@@ -471,6 +471,10 @@ func MakeService(rcvr interface{}) *Service {
 		} else {
 			// the method looks like a handler
 			svc.methods[mname] = method
+			// name: Raft, mname: AppendEntries/InstallSnapshot/RequestVote
+			// fmt.Printf("name: %v, mname: %v, ni: %v, no: %v\n", svc.name, mname, mtype.NumIn(), mtype.NumOut())
+			// fmt.Printf("%v, pp %v, ni %v, 0k: %v, 1k %v, 2k %v, no %v\n",
+			// mname, method.PkgPath, mtype.NumIn(), mtype.In(0), mtype.In(1).Kind(), mtype.In(2).Kind(), mtype.NumOut())
 		}
 	}
 
