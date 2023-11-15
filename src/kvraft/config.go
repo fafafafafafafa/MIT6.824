@@ -57,6 +57,8 @@ type config struct {
 	t0    time.Time // time at which test_test.go called cfg.begin()
 	rpcs0 int       // rpcTotal() at start of test
 	ops   int32     // number of clerk get/put/append method calls
+
+	mylog *raft.Mylog
 }
 
 func (cfg *config) checkTimeout() {
@@ -201,7 +203,7 @@ func (cfg *config) makeClient(to []int) *Clerk {
 		cfg.net.Connect(endnames[j], j)
 	}
 
-	ck := MakeClerk(random_handles(ends))
+	ck := MakeClerk(random_handles(ends), cfg.mylog)
 	cfg.clerks[ck] = endnames
 	cfg.nextClientId++
 	cfg.ConnectClientUnlocked(ck, to)
@@ -312,7 +314,7 @@ func (cfg *config) StartServer(i int) {
 	}
 	cfg.mu.Unlock()
 
-	cfg.kvservers[i] = StartKVServer(ends, i, cfg.saved[i], cfg.maxraftstate)
+	cfg.kvservers[i] = StartKVServer(ends, i, cfg.saved[i], cfg.maxraftstate, cfg.mylog)
 
 	kvsvc := labrpc.MakeService(cfg.kvservers[i])
 	rfsvc := labrpc.MakeService(cfg.kvservers[i].rf)
@@ -357,10 +359,11 @@ func (cfg *config) make_partition() ([]int, []int) {
 
 var ncpu_once sync.Once
 
-func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config {
+func make_config(t *testing.T, n int, unreliable bool, maxraftstate int, mylog *raft.Mylog) *config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
+			mylog.DFprintf("warning: only one CPU, which may conceal locking bugs\n")
 		}
 		rand.Seed(makeSeed())
 	})
@@ -376,6 +379,7 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 	cfg.nextClientId = cfg.n + 1000 // client ids start 1000 above the highest serverid
 	cfg.maxraftstate = maxraftstate
 	cfg.start = time.Now()
+	cfg.mylog = mylog
 
 	// create a full set of KV servers.
 	for i := 0; i < cfg.n; i++ {
@@ -398,6 +402,7 @@ func (cfg *config) rpcTotal() int {
 // e.g. cfg.begin("Test (2B): RPC counts aren't too high")
 func (cfg *config) begin(description string) {
 	fmt.Printf("%s ...\n", description)
+	cfg.mylog.DFprintf("*%s ...\n", description)
 	cfg.t0 = time.Now()
 	cfg.rpcs0 = cfg.rpcTotal()
 	atomic.StoreInt32(&cfg.ops, 0)
@@ -420,6 +425,10 @@ func (cfg *config) end() {
 		ops := atomic.LoadInt32(&cfg.ops)  //  number of clerk get/put/append calls
 
 		fmt.Printf("  ... Passed --")
+		cfg.mylog.DFprintf("  ... Passed --")
+
 		fmt.Printf("  %4.1f  %d %5d %4d\n", t, npeers, nrpc, ops)
+		cfg.mylog.DFprintf("  %4.1f  %d %5d %4d\n", t, npeers, nrpc, ops)
+
 	}
 }

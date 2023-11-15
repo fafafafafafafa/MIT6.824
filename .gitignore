@@ -10,3 +10,5 @@ src/raft/logs2B
 src/raft/logs2C
 src/raft/logs2D
 src/raft/log.txt
+src/kvraft/logs3A
+src/kvraft/logs3B

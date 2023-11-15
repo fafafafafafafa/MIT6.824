@@ -7,9 +7,13 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
+	// "fmt"
+	// "runtime/pprof"
+	// "io"
 )
 
-const Debug = false
+const Debug = true
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
@@ -23,6 +27,12 @@ type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	Method string //  "Put", "Append"
+	ClientId int64// 全局标识，初始化时随机生成，用于标识客户端
+	SeqId int64 // 最新的序列码，随着请求自增，用于排除 重复和过期的请求
+	Key string
+	Value string
+
 }
 
 type KVServer struct {
@@ -35,15 +45,156 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
+	dataset	map[string]string // key-value，存储的数据库
+	clientId2seqId	map[int64]int64  //
+	agreeChs map[int]chan Op  // 从applyCh接收信息，再通过agreeChs发送
+
+	mylog *raft.Mylog
 }
 
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	op := Op{
+		ClientId: args.ClientId,
+		SeqId: args.SeqId,
+		Key: args.Key,
+	}
+	index, _, isLeader := kv.rf.Start(op)
+	if isLeader{
+		ch := kv.getAgreeChs(index)
+		var opMsg Op
+		select{
+		case opMsg = <- ch:
+			kv.mu.Lock()
+			curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+			kv.mylog.DFprintf("*kv.Get: ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", ok, opMsg.SeqId, curSeqId)
+			if !ok || opMsg.SeqId >= curSeqId{
+				// only handle new request
+				v, ok := kv.dataset[opMsg.Key]
+				if !ok{
+					reply.Err = ErrNoKey
+				}else{
+					reply.Err = OK
+					reply.Value = v
+					kv.mylog.DFprintf("*kv.Get: get value: %v\n", v)
+
+				}
+				// update clientId2seqId
+				kv.mylog.DFprintf("*kv.Get: ClientId: %v, SeqId from %v to %v\n", opMsg.ClientId, curSeqId, opMsg.SeqId)
+
+				kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+				
+			}
+			kv.mu.Unlock()
+			close(ch)
+			
+		case <- time.After(500*time.Millisecond): //500ms
+			reply.Err = ErrWrongLeader
+		}
+
+		if !isSameOp(op, opMsg){
+			reply.Err = ErrWrongLeader
+		}
+	}else{
+		kv.mylog.DFprintf("*kv.Get: is not leader\n")
+
+		reply.Err = ErrWrongLeader
+	}
+}
+func (kv *KVServer) getAgreeChs(index int) chan Op{
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	ch, ok := kv.agreeChs[index]
+	if !ok{
+		ch = make(chan Op)
+		kv.agreeChs[index] = ch
+	}
+	return ch
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
+	op := Op{
+		Method: args.Op,
+		ClientId: args.ClientId,
+		SeqId: args.SeqId,
+		Key: args.Key,
+		Value: args.Value,
+	}
+	index, _, isLeader := kv.rf.Start(op)
+	if isLeader{
+		ch := kv.getAgreeChs(index)
+		kv.mylog.DFprintf("*kv.PutAppend: get agreeChs[%v]\n", index)
+		var opMsg Op
+		select{
+		case opMsg = <- ch:
+			kv.mu.Lock()
+			kv.mylog.DFprintf("*kv.PutAppend: get opMsg: %+v\n", opMsg)
+			curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+			kv.mylog.DFprintf("*kv.PutAppend: ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", ok, opMsg.SeqId, curSeqId)
+			if !ok || opMsg.SeqId > curSeqId{
+				// only handle new request
+				switch op.Method{
+				case "Put":
+					kv.mylog.DFprintf("*kv.PutAppend: Put, key: %v, value: %v\n", opMsg.Key, opMsg.Value)
+					kv.dataset[opMsg.Key] = opMsg.Value
+				case "Append":
+					kv.mylog.DFprintf("*kv.PutAppend: Append, key: %v, value(%v)= (past)%v+(add)%v\n", 
+					opMsg.Key, opMsg.Value+kv.dataset[opMsg.Key], kv.dataset[opMsg.Key], opMsg.Value)
+					kv.dataset[opMsg.Key] += opMsg.Value
+				}
+				// update clientId2seqId
+				kv.mylog.DFprintf("*kv.PutAppend: ClientId: %v, SeqId from %v to %v\n", opMsg.ClientId, curSeqId, opMsg.SeqId)
+
+				kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+				
+			}
+			kv.mu.Unlock()
+			reply.Err = OK
+			close(ch)
+			
+		case <- time.After(500*time.Millisecond): //500ms
+			kv.mylog.DFprintf("*kv.PutAppend: get opMsg timeout\n")
+
+			reply.Err = ErrWrongLeader
+		}
+
+		if !isSameOp(op, opMsg){
+			kv.mylog.DFprintf("*kv.PutAppend: different, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
+			op.ClientId, opMsg.ClientId, 
+			op.SeqId, opMsg.SeqId,
+			op.Method, opMsg.Method,
+			op.Key, opMsg.Key,
+			op.Value, opMsg.Value,
+			)
+
+			reply.Err = ErrWrongLeader
+		}
+	}else{
+		reply.Err = ErrWrongLeader
+	}
+
+
+}
+func isSameOp(cmd1 Op, cmd2 Op) bool{
+	return cmd1.ClientId == cmd2.ClientId && cmd1.SeqId == cmd2.SeqId && cmd1.Method == cmd2.Method && cmd1.Key == cmd2.Key && cmd1.Value == cmd2.Value 
+}
+
+func (kv *KVServer) waitApply(){
+	// 额外开一个线程，接受applyCh
+	//根据index向相应的chan发送信号
+	for kv.killed()==false{
+		select{
+		case msg := <- kv.applyCh:
+			kv.mylog.DFprintf("*kv.waitApply: CommandIndex: %v, Op: %+v\n", msg.CommandIndex, msg.Command)
+			ch := kv.getAgreeChs(msg.CommandIndex)
+			ch <- msg.Command.(Op)
+		case <-time.After(1000*time.Millisecond):
+		}
+	}
+	close(kv.applyCh)
+	
 }
 
 //
@@ -81,7 +232,7 @@ func (kv *KVServer) killed() bool {
 // StartKVServer() must return quickly, so it should start goroutines
 // for any long-running work.
 //
-func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int) *KVServer {
+func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int, mylog *raft.Mylog) *KVServer {
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
 	labgob.Register(Op{})
@@ -91,11 +242,14 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.maxraftstate = maxraftstate
 
 	// You may need initialization code here.
-
+	kv.mylog = mylog
 	kv.applyCh = make(chan raft.ApplyMsg)
-	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	kv.rf = raft.Make(servers, me, persister, kv.applyCh, mylog)
 
 	// You may need initialization code here.
-
+	kv.dataset = make(map[string]string)
+	kv.clientId2seqId = make(map[int64]int64)
+	kv.agreeChs = make(map[int]chan Op)
+	go kv.waitApply()
 	return kv
 }

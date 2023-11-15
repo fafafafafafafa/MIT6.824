@@ -570,7 +570,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.mylog.DFprintf("Start: persist use %v ms\n", getNowTimeMillisecond()-nowtime)
 		// rf.mylog.DFprintf("Start: rafts %v heartBeats immediately\n", rf.me)
 
-		// go rf.heartBeats()
+		go rf.heartBeats()
 		
 	}else{
 		isLeader = false
@@ -908,7 +908,7 @@ func (rf *Raft) applier() {
 		
 		
 	}
-	close(rf.applyCh)
+	// close(rf.applyCh)
  
 }
 // The ticker go routine starts a new election if this peer hasn't received

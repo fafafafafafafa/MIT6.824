@@ -11,7 +11,9 @@ import "sync"
 import "sync/atomic"
 import "fmt"
 import "io/ioutil"
-
+import "6.824/raft"
+import "os"
+import "flag"
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
 const electionTimeout = 1 * time.Second
@@ -91,7 +93,9 @@ func Append(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli in
 func check(cfg *config, t *testing.T, ck *Clerk, key string, value string) {
 	v := Get(cfg, ck, key, nil, -1)
 	if v != value {
-		t.Fatalf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
+		cfg.mylog.DFprintf("Fail: Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
+		t.Fatalf("Fail: Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
+		
 	}
 }
 
@@ -117,7 +121,8 @@ func spawn_clients_and_wait(t *testing.T, cfg *config, ncli int, fn func(me int,
 		ok := <-ca[cli]
 		// log.Printf("spawn_clients_and_wait: client %d is done\n", cli)
 		if ok == false {
-			t.Fatalf("failure")
+			cfg.mylog.DFprintf("Fail: failure\n")
+			t.Fatalf("Fail: failure")
 		}
 	}
 }
@@ -129,20 +134,25 @@ func NextValue(prev string, val string) string {
 
 // check that for a specific client all known appends are present in a value,
 // and in order
-func checkClntAppends(t *testing.T, clnt int, v string, count int) {
+func checkClntAppends(t *testing.T, clnt int, v string, count int, cfg *config) {
 	lastoff := -1
 	for j := 0; j < count; j++ {
 		wanted := "x " + strconv.Itoa(clnt) + " " + strconv.Itoa(j) + " y"
 		off := strings.Index(v, wanted)
 		if off < 0 {
-			t.Fatalf("%v missing element %v in Append result %v", clnt, wanted, v)
+			cfg.mylog.DFprintf("Fail: %v missing element %v in Append result %v\n", clnt, wanted, v)
+			t.Fatalf("Fail: %v missing element %v in Append result %v", clnt, wanted, v)
 		}
 		off1 := strings.LastIndex(v, wanted)
 		if off1 != off {
-			t.Fatalf("duplicate element %v in Append result", wanted)
+			cfg.mylog.DFprintf("Fail: duplicate element %v in Append result\n", wanted)
+
+			t.Fatalf("Fail: duplicate element %v in Append result", wanted)
 		}
 		if off <= lastoff {
-			t.Fatalf("wrong order for element %v in Append result", wanted)
+			cfg.mylog.DFprintf("Fail: wrong order for element %v in Append result\n", wanted)
+
+			t.Fatalf("Fail: wrong order for element %v in Append result", wanted)
 		}
 		lastoff = off
 	}
@@ -150,7 +160,7 @@ func checkClntAppends(t *testing.T, clnt int, v string, count int) {
 
 // check that all known appends are present in a value,
 // and are in order for each concurrent client.
-func checkConcurrentAppends(t *testing.T, v string, counts []int) {
+func checkConcurrentAppends(t *testing.T, v string, counts []int, cfg *config) {
 	nclients := len(counts)
 	for i := 0; i < nclients; i++ {
 		lastoff := -1
@@ -158,14 +168,20 @@ func checkConcurrentAppends(t *testing.T, v string, counts []int) {
 			wanted := "x " + strconv.Itoa(i) + " " + strconv.Itoa(j) + " y"
 			off := strings.Index(v, wanted)
 			if off < 0 {
-				t.Fatalf("%v missing element %v in Append result %v", i, wanted, v)
+				cfg.mylog.DFprintf("Fail: %v missing element %v in Append result %v\n", i, wanted, v)
+
+				t.Fatalf("Fail: %v missing element %v in Append result %v", i, wanted, v)
 			}
 			off1 := strings.LastIndex(v, wanted)
 			if off1 != off {
-				t.Fatalf("duplicate element %v in Append result", wanted)
+				cfg.mylog.DFprintf("Fail: duplicate element %v in Append result\n", wanted)
+
+				t.Fatalf("Fail: duplicate element %v in Append result", wanted)
 			}
 			if off <= lastoff {
-				t.Fatalf("wrong order for element %v in Append result", wanted)
+				cfg.mylog.DFprintf("Fail: wrong order for element %v in Append result\n", wanted)
+
+				t.Fatalf("Fail: wrong order for element %v in Append result", wanted)
 			}
 			lastoff = off
 		}
@@ -203,7 +219,8 @@ func partitioner(t *testing.T, cfg *config, ch chan bool, done *int32) {
 // maxraftstate is a positive number, the size of the state for Raft (i.e., log
 // size) shouldn't exceed 8*maxraftstate. If maxraftstate is negative,
 // snapshots shouldn't be used.
-func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliable bool, crash bool, partitions bool, maxraftstate int, randomkeys bool) {
+func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliable bool,
+	crash bool, partitions bool, maxraftstate int, randomkeys bool, mylog *raft.Mylog) {
 
 	title := "Test: "
 	if unreliable {
@@ -231,10 +248,12 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 	}
 	title = title + " (" + part + ")" // 3A or 3B
 
-	cfg := make_config(t, nservers, unreliable, maxraftstate)
+	cfg := make_config(t, nservers, unreliable, maxraftstate, mylog)
 	defer cfg.cleanup()
 
 	cfg.begin(title)
+	mylog.GoroutineStack()
+
 	opLog := &OpLog{}
 
 	ck := cfg.makeClient(cfg.All())
@@ -257,6 +276,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			}()
 			last := "" // only used when not randomkeys
 			if !randomkeys {
+				mylog.DFprintf("*----------------clerk: %v, !randomkeys: Put------------------\n", cli)
+
 				Put(cfg, myck, strconv.Itoa(cli), last, opLog, cli)
 			}
 			for atomic.LoadInt32(&done_clients) == 0 {
@@ -269,6 +290,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 				nv := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
 				if (rand.Int() % 1000) < 500 {
 					// log.Printf("%d: client new append %v\n", cli, nv)
+					mylog.DFprintf("*----------------clerk: %v, < 500: Append------------------\n", cli)
+
 					Append(cfg, myck, key, nv, opLog, cli)
 					if !randomkeys {
 						last = NextValue(last, nv)
@@ -277,14 +300,20 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 				} else if randomkeys && (rand.Int()%1000) < 100 {
 					// we only do this when using random keys, because it would break the
 					// check done after Get() operations
+					mylog.DFprintf("*----------------clerk: %v, < 100: Put------------------\n", cli)
+
 					Put(cfg, myck, key, nv, opLog, cli)
 					j++
 				} else {
 					// log.Printf("%d: client new get %v\n", cli, key)
+					mylog.DFprintf("*----------------clerk: %v, else: Get------------------\n", cli)
+
 					v := Get(cfg, myck, key, opLog, cli)
 					// the following check only makes sense when we're not using random keys
 					if !randomkeys && v != last {
-						t.Fatalf("get wrong value, key %v, wanted:\n%v\n, got\n%v\n", key, last, v)
+						cfg.mylog.DFprintf("Fail: get wrong value, key %v, wanted:\n%v\n, got\n%v\n", key, last, v)
+
+						t.Fatalf("Fail: get wrong value, key %v, wanted:\n%v\n, got\n%v\n", key, last, v)
 					}
 				}
 			}
@@ -337,9 +366,11 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			// }
 			key := strconv.Itoa(i)
 			// log.Printf("Check %v for client %d\n", j, i)
+			mylog.DFprintf("*----------------Get------------------\n")
+
 			v := Get(cfg, ck, key, opLog, 0)
 			if !randomkeys {
-				checkClntAppends(t, i, v, j)
+				checkClntAppends(t, i, v, j, cfg)
 			}
 		}
 
@@ -348,14 +379,18 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			// requests and had time to checkpoint.
 			sz := cfg.LogSize()
 			if sz > 8*maxraftstate {
-				t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
+				cfg.mylog.DFprintf("Fail: logs were not trimmed (%v > 8*%v)\n", sz, maxraftstate)
+
+				t.Fatalf("Fail: logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
 			}
 		}
 		if maxraftstate < 0 {
 			// Check that snapshots are not used
 			ssz := cfg.SnapshotSize()
 			if ssz > 0 {
-				t.Fatalf("snapshot too large (%v), should not be used when maxraftstate = %d", ssz, maxraftstate)
+				cfg.mylog.DFprintf("Fail: snapshot too large (%v), should not be used when maxraftstate = %d\n", ssz, maxraftstate)
+
+				t.Fatalf("Fail: snapshot too large (%v), should not be used when maxraftstate = %d", ssz, maxraftstate)
 			}
 		}
 	}
@@ -364,17 +399,25 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 	if res == porcupine.Illegal {
 		file, err := ioutil.TempFile("", "*.html")
 		if err != nil {
-			fmt.Printf("info: failed to create temp file for visualization")
+			cfg.mylog.DFprintf("info: failed to create temp file for visualization\n")
+
+			fmt.Printf("info: failed to create temp file for visualization\n")
 		} else {
 			err = porcupine.Visualize(models.KvModel, info, file)
 			if err != nil {
+				cfg.mylog.DFprintf("info: failed to write history visualization to %s\n", file.Name())
 				fmt.Printf("info: failed to write history visualization to %s\n", file.Name())
 			} else {
+				cfg.mylog.DFprintf("info: wrote history visualization to %s\n", file.Name())
 				fmt.Printf("info: wrote history visualization to %s\n", file.Name())
 			}
 		}
-		t.Fatal("history is not linearizable")
+		cfg.mylog.DFprintf("Fail: history is not linearizable\n")
+
+		t.Fatal("Fail: history is not linearizable\n")
 	} else if res == porcupine.Unknown {
+		cfg.mylog.DFprintf("info: linearizability check timed out, assuming history is ok\n")
+
 		fmt.Println("info: linearizability check timed out, assuming history is ok")
 	}
 
@@ -382,10 +425,10 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 }
 
 // Check that ops are committed fast enough, better than 1 per heartbeat interval
-func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
+func GenericTestSpeed(t *testing.T, part string, maxraftstate int, mylog *raft.Mylog) {
 	const nservers = 3
 	const numOps = 1000
-	cfg := make_config(t, nservers, false, maxraftstate)
+	cfg := make_config(t, nservers, false, maxraftstate, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient(cfg.All())
@@ -403,14 +446,16 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 	dur := time.Since(start)
 
 	v := ck.Get("x")
-	checkClntAppends(t, 0, v, numOps)
+	checkClntAppends(t, 0, v, numOps, cfg)
 
 	// heartbeat interval should be ~ 100 ms; require at least 3 ops per
 	const heartbeatInterval = 100 * time.Millisecond
 	const opsPerInterval = 3
 	const timePerOp = heartbeatInterval / opsPerInterval
 	if dur > numOps*timePerOp {
-		t.Fatalf("Operations completed too slowly %v/op > %v/op\n", dur/numOps, timePerOp)
+		cfg.mylog.DFprintf("Fail: Operations completed too slowly %v/op > %v/op\n", dur/numOps, timePerOp)
+
+		t.Fatalf("Fail: Operations completed too slowly %v/op > %v/op\n", dur/numOps, timePerOp)
 	}
 
 	cfg.end()
@@ -418,26 +463,165 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int) {
 
 func TestBasic3A(t *testing.T) {
 	// Test: one client (3A) ...
-	GenericTest(t, "3A", 1, 5, false, false, false, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+		
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestBasic3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 1, 5, false, false, false, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestSpeed3A(t *testing.T) {
-	GenericTestSpeed(t, "3A", -1)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestSpeed3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTestSpeed(t, "3A", -1, &mylog)
+		w.Close()
+	}
 }
 
 func TestConcurrent3A(t *testing.T) {
 	// Test: many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, false, false, false, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestConcurrent3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 5, 5, false, false, false, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestUnreliable3A(t *testing.T) {
 	// Test: unreliable net, many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, true, false, false, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestUnreliable3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		// GenericTest(t, "3A", 1, 5, true, false, false, -1, false, &mylog)
+		GenericTest(t, "3A", 5, 5, true, false, false, -1, false, &mylog)
+
+		w.Close()
+	}
 }
 
-func TestUnreliableOneKey3A(t *testing.T) {
+func UnreliableOneKey3A(t *testing.T, mylog *raft.Mylog){
 	const nservers = 3
-	cfg := make_config(t, nservers, true, -1)
+	cfg := make_config(t, nservers, true, -1, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient(cfg.All())
@@ -462,17 +646,51 @@ func TestUnreliableOneKey3A(t *testing.T) {
 	}
 
 	vx := Get(cfg, ck, "k", nil, -1)
-	checkConcurrentAppends(t, vx, counts)
+	checkConcurrentAppends(t, vx, counts, cfg)
 
 	cfg.end()
 }
+func TestUnreliableOneKey3A(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestUnreliableOneKey3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		UnreliableOneKey3A(t, &mylog)
+		w.Close()
+	}
+}
 
-// Submit a request in the minority partition and check that the requests
-// doesn't go through until the partition heals.  The leader in the original
-// network ends up in the minority partition.
-func TestOnePartition3A(t *testing.T) {
+func OnePartition3A(t *testing.T, mylog *raft.Mylog){
 	const nservers = 5
-	cfg := make_config(t, nservers, false, -1)
+	cfg := make_config(t, nservers, false, -1, mylog)
 	defer cfg.cleanup()
 	ck := cfg.makeClient(cfg.All())
 
@@ -507,9 +725,13 @@ func TestOnePartition3A(t *testing.T) {
 
 	select {
 	case <-done0:
-		t.Fatalf("Put in minority completed")
+		cfg.mylog.DFprintf("Fail: Put in minority completed\n")
+
+		t.Fatalf("Fail: Put in minority completed")
 	case <-done1:
-		t.Fatalf("Get in minority completed")
+		cfg.mylog.DFprintf("Fail: Get in minority completed\n")
+
+		t.Fatalf("Fail: Get in minority completed")
 	case <-time.After(time.Second):
 	}
 
@@ -530,13 +752,17 @@ func TestOnePartition3A(t *testing.T) {
 	select {
 	case <-done0:
 	case <-time.After(30 * 100 * time.Millisecond):
-		t.Fatalf("Put did not complete")
+		cfg.mylog.DFprintf("Fail: Put did not complete\n")
+
+		t.Fatalf("Fail: Put did not complete")
 	}
 
 	select {
 	case <-done1:
 	case <-time.After(30 * 100 * time.Millisecond):
-		t.Fatalf("Get did not complete")
+		cfg.mylog.DFprintf("Fail: Get did not complete\n")
+
+		t.Fatalf("Fail: Get did not complete")
 	default:
 	}
 
@@ -544,57 +770,364 @@ func TestOnePartition3A(t *testing.T) {
 
 	cfg.end()
 }
+// Submit a request in the minority partition and check that the requests
+// doesn't go through until the partition heals.  The leader in the original
+// network ends up in the minority partition.
+func TestOnePartition3A(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestOnePartition3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		OnePartition3A(t, &mylog)
+		w.Close()
+	}
+}
 
 func TestManyPartitionsOneClient3A(t *testing.T) {
 	// Test: partitions, one client (3A) ...
-	GenericTest(t, "3A", 1, 5, false, false, true, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestManyPartitionsOneClient3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 1, 5, false, false, true, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestManyPartitionsManyClients3A(t *testing.T) {
 	// Test: partitions, many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, false, false, true, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestManyPartitionsManyClients3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+
+		GenericTest(t, "3A", 5, 5, false, false, true, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestPersistOneClient3A(t *testing.T) {
 	// Test: restarts, one client (3A) ...
-	GenericTest(t, "3A", 1, 5, false, true, false, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestPersistOneClient3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 1, 5, false, true, false, -1, false, &mylog)
+		w.Close()
+	}
 }
-
 func TestPersistConcurrent3A(t *testing.T) {
 	// Test: restarts, many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, false, true, false, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestPersistConcurrent3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 5, 5, false, true, false, -1, false, &mylog)
+		w.Close()
+	}	
 }
 
 func TestPersistConcurrentUnreliable3A(t *testing.T) {
 	// Test: unreliable net, restarts, many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, true, true, false, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestPersistConcurrentUnreliable3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 5, 5, true, true, false, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestPersistPartition3A(t *testing.T) {
 	// Test: restarts, partitions, many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, false, true, true, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestPersistPartition3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 5, 5, false, true, true, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestPersistPartitionUnreliable3A(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, many clients (3A) ...
-	GenericTest(t, "3A", 5, 5, true, true, true, -1, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestPersistPartitionUnreliable3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 5, 5, true, true, true, -1, false, &mylog)
+		w.Close()
+	}
 }
 
 func TestPersistPartitionUnreliableLinearizable3A(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, random keys, many clients (3A) ...
-	GenericTest(t, "3A", 15, 7, true, true, true, -1, true)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3A/TestPersistPartitionUnreliableLinearizable3A"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3A", 15, 7, true, true, true, -1, true, &mylog)
+		w.Close()
+	}
 }
 
-//
-// if one server falls behind, then rejoins, does it
-// recover by using the InstallSnapshot RPC?
-// also checks that majority discards committed log entries
-// even if minority doesn't respond.
-//
-func TestSnapshotRPC3B(t *testing.T) {
+
+func SnapshotRPC3B(t *testing.T, mylog *raft.Mylog){
 	const nservers = 3
 	maxraftstate := 1000
-	cfg := make_config(t, nservers, false, maxraftstate)
+	cfg := make_config(t, nservers, false, maxraftstate, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient(cfg.All())
@@ -619,7 +1152,9 @@ func TestSnapshotRPC3B(t *testing.T) {
 	// most of its log entries.
 	sz := cfg.LogSize()
 	if sz > 8*maxraftstate {
-		t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
+		cfg.mylog.DFprintf("Fail: logs were not trimmed (%v > 8*%v)\n", sz, maxraftstate)
+
+		t.Fatalf("Fail: logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
 	}
 
 	// now make group that requires participation of
@@ -645,14 +1180,55 @@ func TestSnapshotRPC3B(t *testing.T) {
 
 	cfg.end()
 }
+//
+// if one server falls behind, then rejoins, does it
+// recover by using the InstallSnapshot RPC?
+// also checks that majority discards committed log entries
+// even if minority doesn't respond.
+//
+func TestSnapshotRPC3B(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotRPC3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		SnapshotRPC3B(t, &mylog)
+		w.Close()
+	}
+}
 
-// are the snapshots not too huge? 500 bytes is a generous bound for the
-// operations we're doing here.
-func TestSnapshotSize3B(t *testing.T) {
+func SnapshotSize3B(t *testing.T, mylog *raft.Mylog){
 	const nservers = 3
 	maxraftstate := 1000
 	maxsnapshotstate := 500
-	cfg := make_config(t, nservers, false, maxraftstate)
+	cfg := make_config(t, nservers, false, maxraftstate, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient(cfg.All())
@@ -669,48 +1245,336 @@ func TestSnapshotSize3B(t *testing.T) {
 	// check that servers have thrown away most of their log entries
 	sz := cfg.LogSize()
 	if sz > 8*maxraftstate {
-		t.Fatalf("logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
+		cfg.mylog.DFprintf("Fail: logs were not trimmed (%v > 8*%v)\n", sz, maxraftstate)
+
+		t.Fatalf("Fail: logs were not trimmed (%v > 8*%v)", sz, maxraftstate)
 	}
 
 	// check that the snapshots are not unreasonably large
 	ssz := cfg.SnapshotSize()
 	if ssz > maxsnapshotstate {
-		t.Fatalf("snapshot too large (%v > %v)", ssz, maxsnapshotstate)
+		cfg.mylog.DFprintf("Fail: snapshot too large (%v > %v)\n", ssz, maxsnapshotstate)
+
+		t.Fatalf("Fail: snapshot too large (%v > %v)", ssz, maxsnapshotstate)
 	}
 
 	cfg.end()
 }
+// are the snapshots not too huge? 500 bytes is a generous bound for the
+// operations we're doing here.
+func TestSnapshotSize3B(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotSize3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		SnapshotSize3B(t, &mylog)
+		w.Close()
+	}
+}
 
 func TestSpeed3B(t *testing.T) {
-	GenericTestSpeed(t, "3B", 1000)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSpeed3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTestSpeed(t, "3B", 1000, &mylog)
+		w.Close()
+	}
+	
 }
 
 func TestSnapshotRecover3B(t *testing.T) {
 	// Test: restarts, snapshots, one client (3B) ...
-	GenericTest(t, "3B", 1, 5, false, true, false, 1000, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotRecover3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3B", 1, 5, false, true, false, 1000, false, &mylog)
+		w.Close()
+	}
+	
 }
 
 func TestSnapshotRecoverManyClients3B(t *testing.T) {
 	// Test: restarts, snapshots, many clients (3B) ...
-	GenericTest(t, "3B", 20, 5, false, true, false, 1000, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotRecoverManyClients3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3B", 20, 5, false, true, false, 1000, false, &mylog)
+		w.Close()
+	}
+	
 }
 
 func TestSnapshotUnreliable3B(t *testing.T) {
 	// Test: unreliable net, snapshots, many clients (3B) ...
-	GenericTest(t, "3B", 5, 5, true, false, false, 1000, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotUnreliable3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3B", 5, 5, true, false, false, 1000, false, &mylog)
+		w.Close()
+	}
+	
 }
 
 func TestSnapshotUnreliableRecover3B(t *testing.T) {
 	// Test: unreliable net, restarts, snapshots, many clients (3B) ...
-	GenericTest(t, "3B", 5, 5, true, true, false, 1000, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotUnreliableRecover3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3B", 5, 5, true, true, false, 1000, false, &mylog)
+		w.Close()
+	}
+	
 }
 
 func TestSnapshotUnreliableRecoverConcurrentPartition3B(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, snapshots, many clients (3B) ...
-	GenericTest(t, "3B", 5, 5, true, true, true, 1000, false)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotUnreliableRecoverConcurrentPartition3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3B", 5, 5, true, true, true, 1000, false, &mylog)
+		w.Close()
+	}
+	
 }
 
 func TestSnapshotUnreliableRecoverConcurrentPartitionLinearizable3B(t *testing.T) {
 	// Test: unreliable net, restarts, partitions, snapshots, random keys, many clients (3B) ...
-	GenericTest(t, "3B", 15, 7, true, true, true, 1000, true)
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs3B/TestSnapshotUnreliableRecoverConcurrentPartitionLinearizable3B"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		GenericTest(t, "3B", 15, 7, true, true, true, 1000, true, &mylog)
+		w.Close()
+	}
+	
 }
