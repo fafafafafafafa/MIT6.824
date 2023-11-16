@@ -143,7 +143,8 @@ func (rf *Raft) persist() {
 	e.Encode(rf.log.GetEntriesAfterIndex(0))
 	e.Encode(rf.lastIncludedIndex)
 	e.Encode(rf.lastIncludedTerm)
-
+	// 3A
+	e.Encode(rf.lastApplied)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -159,7 +160,8 @@ func (rf *Raft) persistStateAndSnapshot(snapshot []byte){
 	e.Encode(rf.log.GetEntriesAfterIndex(0))
 	e.Encode(rf.lastIncludedIndex)
 	e.Encode(rf.lastIncludedTerm)
-
+	// 3A
+	e.Encode(rf.lastApplied)
 	data := w.Bytes()
 	
 	rf.persister.SaveStateAndSnapshot(data, snapshot)
@@ -193,12 +195,14 @@ func (rf *Raft) readPersist(data []byte) {
 	var log []Entry
 	var lastIncludedIndex int
 	var lastIncludedTerm int
+	var lastApplied int
 
 	if d.Decode(&currentTerm) != nil ||
 	   d.Decode(&votedFor) != nil||
 	   d.Decode(&log) !=nil ||
 	   d.Decode(&lastIncludedIndex) !=nil ||
-	   d.Decode(&lastIncludedTerm) !=nil {
+	   d.Decode(&lastIncludedTerm) !=nil ||
+	   d.Decode(&lastApplied) != nil {
 		rf.mylog.DFprintf("readPersist: decode failed! \n")
 	} else {
 		rf.currentTerm = currentTerm
@@ -208,9 +212,11 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.log.AppendEntries(log)
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
-		
-		rf.mylog.DFprintf("readPersist: load raft:%v , rf.currentTerm: %v, rf.votedFor: %v, len of rf.log: %v, rf.lastIncludedIndex: %v, rf.lastIncludedTerm: %v \n", 
-		rf.me, rf.currentTerm, rf.votedFor, rf.log.GetLen(), rf.lastIncludedIndex, rf.lastIncludedTerm)
+		rf.lastApplied = lastApplied
+
+		rf.mylog.DFprintf(
+		"readPersist: load raft:%v , rf.currentTerm: %v, rf.votedFor: %v, len of rf.log: %v, rf.lastIncludedIndex: %v, rf.lastIncludedTerm: %v, rf.lastApplied: %v \n", 
+		rf.me, rf.currentTerm, rf.votedFor, rf.log.GetLen(), rf.lastIncludedIndex, rf.lastIncludedTerm, rf.lastApplied)
 	}
 }
 
@@ -880,7 +886,7 @@ func (rf *Raft) sendPeerAppendEntries(idx int, oldterm int){
 func (rf *Raft) applier() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	rf.lastApplied = rf.lastIncludedIndex
+	// rf.lastApplied = rf.lastIncludedIndex
 
 	for rf.killed() == false{
 		
@@ -903,6 +909,7 @@ func (rf *Raft) applier() {
 				rf.mu.Lock()
 			}
 			rf.lastApplied = lastApplied-1
+			rf.persist()
 			rf.mylog.DFprintf("raft %v, applier use time %v (ms)\n", rf.me, getNowTimeMillisecond()-startTime)
 		}
 		

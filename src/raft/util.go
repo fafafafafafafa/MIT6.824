@@ -4,12 +4,14 @@ import "log"
 import "io"
 import "fmt"
 import "runtime/pprof"
+import "sync"
 // Debugging
-const Debug = false
+const Debug = true
 
 type Mylog struct{
 	W io.Writer
 	Debug bool
+	mu sync.Mutex
 } 
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
@@ -20,9 +22,13 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 }
 
 func (mylog *Mylog)DFprintf(format string, a ...interface{}) (n int, err error) {
+	mylog.mu.Lock()
+	defer mylog.mu.Unlock()
+
 	mylog.Debug = Debug
 	if mylog.Debug {
 		// log.Printf(format, a...)
+		
 		fmt.Fprintf(mylog.W, format, a...)
 		log.Printf(format, a...)
 	}

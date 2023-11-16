@@ -14,6 +14,23 @@ import (
 )
 
 const Debug = true
+// type Mylog struct{
+// 	W io.Writer
+// 	Debug bool
+// } 
+
+// func (mylog *raft.Mylog)DFprintf(format string, a ...interface{}) (n int, err error) {
+// 	mylog.Debug = Debug
+// 	if mylog.Debug {
+// 		// log.Printf(format, a...)
+// 		fmt.Fprintf(mylog.W, format, a...)
+// 		log.Printf(format, a...)
+// 	}
+// 	return
+// }
+// func (mylog *raft.Mylog)GoroutineStack(){
+// 	_ = pprof.Lookup("goroutine").WriteTo(mylog.W, 1)
+// }
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
@@ -89,7 +106,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			kv.mu.Unlock()
 			close(ch)
 			
-		case <- time.After(500*time.Millisecond): //500ms
+		case <- time.After(500*time.Millisecond): // 500ms
 			reply.Err = ErrWrongLeader
 		}
 
@@ -107,7 +124,7 @@ func (kv *KVServer) getAgreeChs(index int) chan Op{
 	defer kv.mu.Unlock()
 	ch, ok := kv.agreeChs[index]
 	if !ok{
-		ch = make(chan Op)
+		ch = make(chan Op, 1)
 		kv.agreeChs[index] = ch
 	}
 	return ch
@@ -154,7 +171,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 			reply.Err = OK
 			close(ch)
 			
-		case <- time.After(500*time.Millisecond): //500ms
+		case <- time.After(500*time.Millisecond): // 500ms
 			kv.mylog.DFprintf("*kv.PutAppend: get opMsg timeout\n")
 
 			reply.Err = ErrWrongLeader
@@ -183,13 +200,17 @@ func isSameOp(cmd1 Op, cmd2 Op) bool{
 
 func (kv *KVServer) waitApply(){
 	// 额外开一个线程，接受applyCh
-	//根据index向相应的chan发送信号
+	// 根据index向相应的chan发送信号
 	for kv.killed()==false{
 		select{
 		case msg := <- kv.applyCh:
-			kv.mylog.DFprintf("*kv.waitApply: CommandIndex: %v, Op: %+v\n", msg.CommandIndex, msg.Command)
-			ch := kv.getAgreeChs(msg.CommandIndex)
-			ch <- msg.Command.(Op)
+			kv.mylog.DFprintf("*kv.waitApply: CommandIndex: %v, opMsg: %+v\n", msg.CommandIndex, msg.Command)
+			if msg.Command != nil{
+			
+				ch := kv.getAgreeChs(msg.CommandIndex)
+				ch <- msg.Command.(Op)
+
+			}
 		case <-time.After(1000*time.Millisecond):
 		}
 	}
@@ -232,7 +253,7 @@ func (kv *KVServer) killed() bool {
 // StartKVServer() must return quickly, so it should start goroutines
 // for any long-running work.
 //
-func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int, mylog *raft.Mylog) *KVServer {
+func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister, maxraftstate int, kvlog *raft.Mylog) *KVServer {
 	// call labgob.Register on structures you want
 	// Go's RPC library to marshall/unmarshall.
 	labgob.Register(Op{})
@@ -242,9 +263,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.maxraftstate = maxraftstate
 
 	// You may need initialization code here.
-	kv.mylog = mylog
+	kv.mylog = kvlog
 	kv.applyCh = make(chan raft.ApplyMsg)
-	kv.rf = raft.Make(servers, me, persister, kv.applyCh, mylog)
+	kv.rf = raft.Make(servers, me, persister, kv.applyCh, kvlog)
 
 	// You may need initialization code here.
 	kv.dataset = make(map[string]string)

@@ -59,6 +59,7 @@ type config struct {
 	ops   int32     // number of clerk get/put/append method calls
 
 	mylog *raft.Mylog
+	raftlog *raft.Mylog
 }
 
 func (cfg *config) checkTimeout() {
@@ -380,6 +381,7 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int, mylog *
 	cfg.maxraftstate = maxraftstate
 	cfg.start = time.Now()
 	cfg.mylog = mylog
+	// cfg.raftlog = raftlog
 
 	// create a full set of KV servers.
 	for i := 0; i < cfg.n; i++ {
