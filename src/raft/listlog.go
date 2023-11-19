@@ -120,9 +120,11 @@ func (listLog *ListLog) GetEntriesAfterIndex(index int) []Entry{
 	if index < 0 || index > len(listLog.logEntry)-1{
 		return []Entry{}
 	}else{
+		slice := listLog.logEntry[index:]
 		
-		return listLog.logEntry[index:]
-		
+		reEntries := make([]Entry, len(slice), len(slice))
+		copy(reEntries, slice)
+		return reEntries
 	}
 }
 

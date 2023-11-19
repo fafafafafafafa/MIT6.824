@@ -915,7 +915,7 @@ func (rf *Raft) applier() {
 		
 		
 	}
-	// close(rf.applyCh)
+	close(rf.applyCh)
  
 }
 // The ticker go routine starts a new election if this peer hasn't received
@@ -982,13 +982,13 @@ func (rf *Raft) stateTrans(){
 			case <-rf.winElectionChan:
 				// win the election
 				// Reinitialize nextIndex[] and matchIndex[] after win an election
-				// rf.mu.Lock()
+				rf.mu.Lock()
 				for i := 0; i < len(rf.peers); i++{
 					rf.nextIndex[i] = rf.log.GetLen()+rf.lastIncludedIndex
 					rf.matchIndex[i] = 0
 				}
 				// rf.nextIndex = len(rf.log)	
-				// rf.mu.Unlock()
+				rf.mu.Unlock()
 			}
 			break
 		case LEADER:

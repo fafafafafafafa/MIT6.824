@@ -92,6 +92,8 @@ func Append(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli in
 
 func check(cfg *config, t *testing.T, ck *Clerk, key string, value string) {
 	v := Get(cfg, ck, key, nil, -1)
+	cfg.mylog.DFprintf("check: v: %v, value: %v\n", v, value)
+
 	if v != value {
 		cfg.mylog.DFprintf("Fail: Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
 		t.Fatalf("Fail: Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
@@ -206,6 +208,7 @@ func partitioner(t *testing.T, cfg *config, ch chan bool, done *int32) {
 			}
 		}
 		cfg.partition(pa[0], pa[1])
+		// cfg.mylog.DFprintf("*----------------partitioner:(%v), (%v)------------------\n", pa[0], pa[1])
 		time.Sleep(electionTimeout + time.Duration(rand.Int63()%200)*time.Millisecond)
 	}
 }
@@ -336,6 +339,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			// have submitted a request in a minority.  That request
 			// won't return until that server discovers a new term
 			// has started.
+			mylog.DFprintf("*----------------ConnectAll------------------\n")
+
 			cfg.ConnectAll()
 			// wait for a while so that we have a new term
 			time.Sleep(electionTimeout)
@@ -369,6 +374,7 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			mylog.DFprintf("*----------------Get------------------\n")
 
 			v := Get(cfg, ck, key, opLog, 0)
+			mylog.DFprintf("*Get, value: %v\n", v)
 			if !randomkeys {
 				checkClntAppends(t, i, v, j, cfg)
 			}
@@ -689,6 +695,8 @@ func TestUnreliableOneKey3A(t *testing.T) {
 }
 
 func OnePartition3A(t *testing.T, mylog *raft.Mylog){
+	mylog.GoroutineStack()
+
 	const nservers = 5
 	cfg := make_config(t, nservers, false, -1, mylog)
 	defer cfg.cleanup()

@@ -85,7 +85,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		case opMsg = <- ch:
 			kv.mu.Lock()
 			curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-			kv.mylog.DFprintf("*kv.Get: ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", ok, opMsg.SeqId, curSeqId)
+			kv.mylog.DFprintf("*kv.Get: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
 			if !ok || opMsg.SeqId >= curSeqId{
 				// only handle new request
 				v, ok := kv.dataset[opMsg.Key]
@@ -93,12 +93,12 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 					reply.Err = ErrNoKey
 				}else{
 					reply.Err = OK
-					reply.Value = v
-					kv.mylog.DFprintf("*kv.Get: get value: %v\n", v)
+					reply.Value = v 
+					kv.mylog.DFprintf("*kv.Get: kvserver: %v, get value: %v\n", kv.me, v)
 
 				}
 				// update clientId2seqId
-				kv.mylog.DFprintf("*kv.Get: ClientId: %v, SeqId from %v to %v\n", opMsg.ClientId, curSeqId, opMsg.SeqId)
+				kv.mylog.DFprintf("*kv.Get: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 
 				kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
 				
@@ -114,7 +114,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			reply.Err = ErrWrongLeader
 		}
 	}else{
-		kv.mylog.DFprintf("*kv.Get: is not leader\n")
+		kv.mylog.DFprintf("*kv.Get: is not leader, kvserver: %v\n", kv.me)
 
 		reply.Err = ErrWrongLeader
 	}
@@ -142,43 +142,23 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	index, _, isLeader := kv.rf.Start(op)
 	if isLeader{
 		ch := kv.getAgreeChs(index)
-		kv.mylog.DFprintf("*kv.PutAppend: get agreeChs[%v]\n", index)
+		kv.mylog.DFprintf("*kv.PutAppend: kvserver: %v, get agreeChs[%v]\n", kv.me, index)
 		var opMsg Op
 		select{
 		case opMsg = <- ch:
-			kv.mu.Lock()
-			kv.mylog.DFprintf("*kv.PutAppend: get opMsg: %+v\n", opMsg)
-			curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-			kv.mylog.DFprintf("*kv.PutAppend: ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", ok, opMsg.SeqId, curSeqId)
-			if !ok || opMsg.SeqId > curSeqId{
-				// only handle new request
-				switch op.Method{
-				case "Put":
-					kv.mylog.DFprintf("*kv.PutAppend: Put, key: %v, value: %v\n", opMsg.Key, opMsg.Value)
-					kv.dataset[opMsg.Key] = opMsg.Value
-				case "Append":
-					kv.mylog.DFprintf("*kv.PutAppend: Append, key: %v, value(%v)= (past)%v+(add)%v\n", 
-					opMsg.Key, opMsg.Value+kv.dataset[opMsg.Key], kv.dataset[opMsg.Key], opMsg.Value)
-					kv.dataset[opMsg.Key] += opMsg.Value
-				}
-				// update clientId2seqId
-				kv.mylog.DFprintf("*kv.PutAppend: ClientId: %v, SeqId from %v to %v\n", opMsg.ClientId, curSeqId, opMsg.SeqId)
 
-				kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
-				
-			}
-			kv.mu.Unlock()
 			reply.Err = OK
 			close(ch)
 			
 		case <- time.After(500*time.Millisecond): // 500ms
-			kv.mylog.DFprintf("*kv.PutAppend: get opMsg timeout\n")
+			kv.mylog.DFprintf("*kv.PutAppend: kvserver: %v, get opMsg timeout\n", kv.me)
 
 			reply.Err = ErrWrongLeader
 		}
 
 		if !isSameOp(op, opMsg){
-			kv.mylog.DFprintf("*kv.PutAppend: different, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
+			kv.mylog.DFprintf("*kv.PutAppend: different, kvserver: %v, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
+			kv.me,
 			op.ClientId, opMsg.ClientId, 
 			op.SeqId, opMsg.SeqId,
 			op.Method, opMsg.Method,
@@ -202,19 +182,44 @@ func (kv *KVServer) waitApply(){
 	// 额外开一个线程，接受applyCh
 	// 根据index向相应的chan发送信号
 	for kv.killed()==false{
-		select{
-		case msg := <- kv.applyCh:
-			kv.mylog.DFprintf("*kv.waitApply: CommandIndex: %v, opMsg: %+v\n", msg.CommandIndex, msg.Command)
+ 		for  msg := range kv.applyCh{
+			kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
 			if msg.Command != nil{
-			
+				kv.mu.Lock()
+				var opMsg Op = msg.Command.(Op)
+				kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
+				curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+				kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+				if !ok || opMsg.SeqId > curSeqId{
+					// only handle new request
+					switch opMsg.Method{
+					case "Put":
+						kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
+						kv.dataset[opMsg.Key] = opMsg.Value
+					case "Append":
+						kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)= (past)%v+(add)%v\n", 
+						kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
+						kv.dataset[opMsg.Key] += opMsg.Value
+					}
+					// update clientId2seqId
+					kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+	
+					kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+					
+				}
+				kv.mu.Unlock()
+
 				ch := kv.getAgreeChs(msg.CommandIndex)
-				ch <- msg.Command.(Op)
+				ch <- opMsg
 
 			}
-		case <-time.After(1000*time.Millisecond):
+
 		}
+
+ 
 	}
-	close(kv.applyCh)
+	kv.mylog.DFprintf("*waitApply(): end, kvserver: %v\n", kv.me)
+	// close(kv.applyCh)
 	
 }
 
@@ -272,5 +277,6 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.clientId2seqId = make(map[int64]int64)
 	kv.agreeChs = make(map[int]chan Op)
 	go kv.waitApply()
+	kv.mylog.DFprintf("*StartKVServer(): me: %v\n", me)
 	return kv
 }

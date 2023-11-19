@@ -6,7 +6,7 @@ import "fmt"
 import "runtime/pprof"
 import "sync"
 // Debugging
-const Debug = true
+const Debug = true 
 
 type Mylog struct{
 	W io.Writer
@@ -15,9 +15,13 @@ type Mylog struct{
 } 
 
 func DPrintf(format string, a ...interface{}) (n int, err error) {
-	if Debug {
+	if true{
 		log.Printf(format, a...)
+
 	}
+	// if Debug {
+	// 	log.Printf(format, a...)
+	// }
 	return
 }
 

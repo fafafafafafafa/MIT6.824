@@ -65,6 +65,7 @@ type config struct {
 func (cfg *config) checkTimeout() {
 	// enforce a two minute real-time limit on each test
 	if !cfg.t.Failed() && time.Since(cfg.start) > 120*time.Second {
+		cfg.mylog.DFprintf("test took longer than 120 seconds\n")
 		cfg.t.Fatal("test took longer than 120 seconds")
 	}
 }
@@ -178,6 +179,7 @@ func (cfg *config) partition(p1 []int, p2 []int) {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
 	// log.Printf("partition servers into: %v %v\n", p1, p2)
+	cfg.mylog.DFprintf("*------------partition: p1(%v), p2(%v)------------\n", p1, p2)
 	for i := 0; i < len(p1); i++ {
 		cfg.disconnectUnlocked(p1[i], p2)
 		cfg.connectUnlocked(p1[i], p1)
@@ -420,6 +422,8 @@ func (cfg *config) op() {
 // and some performance numbers.
 func (cfg *config) end() {
 	cfg.checkTimeout()
+	cfg.mylog.DFprintf("   ... end(), cfg.t.Failed(): %v --\n", cfg.t.Failed())
+
 	if cfg.t.Failed() == false {
 		t := time.Since(cfg.t0).Seconds()  // real time
 		npeers := cfg.n                    // number of Raft peers
