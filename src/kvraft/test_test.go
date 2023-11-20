@@ -440,6 +440,7 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int, mylog *raft.M
 	ck := cfg.makeClient(cfg.All())
 
 	cfg.begin(fmt.Sprintf("Test: ops complete fast enough (%s)", part))
+	mylog.GoroutineStack()
 
 	// wait until first op completes, so we know a leader is elected
 	// and KV servers are ready to process client requests
@@ -447,6 +448,10 @@ func GenericTestSpeed(t *testing.T, part string, maxraftstate int, mylog *raft.M
 
 	start := time.Now()
 	for i := 0; i < numOps; i++ {
+		if i % 50 == 0{
+			mylog.GoroutineStack()
+
+		}
 		ck.Append("x", "x 0 "+strconv.Itoa(i)+" y")
 	}
 	dur := time.Since(start)

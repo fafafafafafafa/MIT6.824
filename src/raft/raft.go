@@ -144,7 +144,7 @@ func (rf *Raft) persist() {
 	e.Encode(rf.lastIncludedIndex)
 	e.Encode(rf.lastIncludedTerm)
 	// 3A
-	e.Encode(rf.lastApplied)
+	// e.Encode(rf.lastApplied)
 	data := w.Bytes()
 	rf.persister.SaveRaftState(data)
 }
@@ -161,7 +161,7 @@ func (rf *Raft) persistStateAndSnapshot(snapshot []byte){
 	e.Encode(rf.lastIncludedIndex)
 	e.Encode(rf.lastIncludedTerm)
 	// 3A
-	e.Encode(rf.lastApplied)
+	// e.Encode(rf.lastApplied)
 	data := w.Bytes()
 	
 	rf.persister.SaveStateAndSnapshot(data, snapshot)
@@ -195,14 +195,15 @@ func (rf *Raft) readPersist(data []byte) {
 	var log []Entry
 	var lastIncludedIndex int
 	var lastIncludedTerm int
-	var lastApplied int
+	// var lastApplied int
 
 	if d.Decode(&currentTerm) != nil ||
 	   d.Decode(&votedFor) != nil||
 	   d.Decode(&log) !=nil ||
 	   d.Decode(&lastIncludedIndex) !=nil ||
-	   d.Decode(&lastIncludedTerm) !=nil ||
-	   d.Decode(&lastApplied) != nil {
+	   d.Decode(&lastIncludedTerm) !=nil {
+	//    d.Decode(&lastApplied) != nil {
+	
 		rf.mylog.DFprintf("readPersist: decode failed! \n")
 	} else {
 		rf.currentTerm = currentTerm
@@ -212,7 +213,7 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.log.AppendEntries(log)
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
-		rf.lastApplied = lastApplied
+		// rf.lastApplied = lastApplied
 
 		rf.mylog.DFprintf(
 		"readPersist: load raft:%v , rf.currentTerm: %v, rf.votedFor: %v, len of rf.log: %v, rf.lastIncludedIndex: %v, rf.lastIncludedTerm: %v, rf.lastApplied: %v \n", 
@@ -886,7 +887,7 @@ func (rf *Raft) sendPeerAppendEntries(idx int, oldterm int){
 func (rf *Raft) applier() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	// rf.lastApplied = rf.lastIncludedIndex
+	rf.lastApplied = rf.lastIncludedIndex
 
 	for rf.killed() == false{
 		
@@ -898,18 +899,21 @@ func (rf *Raft) applier() {
 			lastApplied := rf.lastApplied + 1
 			for ;lastApplied <= rf.commitIndex; lastApplied++{
 				e, _ := rf.log.GetEntryFromIndex(lastApplied-rf.lastIncludedIndex)
-				rf.mylog.DFprintf("applier: raft %v, apply cmd(%v), CommandIndex %v \n", rf.me, e.Command, lastApplied)
+				// rf.mylog.DFprintf("applier: raft %v, apply cmd(%v), CommandIndex %v \n", rf.me, e.Command, lastApplied)
 				applyMsg := ApplyMsg{
 					CommandValid: true,	
 					Command: e.Command,
 					CommandIndex: lastApplied,
 				}
 				rf.mu.Unlock()
+				// go func(){
+				// 	rf.applyCh <- applyMsg
+				// }()
 				rf.applyCh <- applyMsg
 				rf.mu.Lock()
 			}
 			rf.lastApplied = lastApplied-1
-			rf.persist()
+			// rf.persist()
 			rf.mylog.DFprintf("raft %v, applier use time %v (ms)\n", rf.me, getNowTimeMillisecond()-startTime)
 		}
 		

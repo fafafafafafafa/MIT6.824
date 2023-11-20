@@ -100,7 +100,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 				// update clientId2seqId
 				kv.mylog.DFprintf("*kv.Get: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 
-				kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+				// kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
 				
 			}
 			kv.mu.Unlock()
@@ -183,34 +183,37 @@ func (kv *KVServer) waitApply(){
 	// 根据index向相应的chan发送信号
 	for kv.killed()==false{
  		for  msg := range kv.applyCh{
-			kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
+			// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
 			if msg.Command != nil{
 				kv.mu.Lock()
 				var opMsg Op = msg.Command.(Op)
-				kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
+				// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
 				curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-				kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+				// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
 				if !ok || opMsg.SeqId > curSeqId{
 					// only handle new request
 					switch opMsg.Method{
 					case "Put":
-						kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
+						// kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
 						kv.dataset[opMsg.Key] = opMsg.Value
 					case "Append":
-						kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)= (past)%v+(add)%v\n", 
-						kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
+						// kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)= (past)%v+(add)%v\n", 
+						// kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
 						kv.dataset[opMsg.Key] += opMsg.Value
 					}
 					// update clientId2seqId
-					kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+					// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 	
 					kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
 					
 				}
 				kv.mu.Unlock()
-
-				ch := kv.getAgreeChs(msg.CommandIndex)
-				ch <- opMsg
+				
+				if _, isLeader := kv.rf.GetState(); isLeader {
+					ch := kv.getAgreeChs(msg.CommandIndex)
+					ch <- opMsg
+				}
+				
 
 			}
 
