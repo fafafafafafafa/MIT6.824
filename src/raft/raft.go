@@ -700,22 +700,25 @@ func (rf *Raft) heartBeats(){
 	// leaderCommit := 0
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	if rf.identity != LEADER{
+		return 
+	}
 	rf.nextIndex[rf.me] = rf.log.GetLen()+rf.lastIncludedIndex
 	rf.matchIndex[rf.me] = rf.nextIndex[rf.me]-1
  
 	// DPrintf("heartBeats: raft: %v, nextIndex: %v, matchIndex: %v\n", rf.me, rf.nextIndex, rf.matchIndex)
-	rf.mylog.DFprintf("heartBeats: raft: %v, nextIndex: %v, matchIndex: %v, len of log: %v, lastIncludedIndex: %v\n", 
-	rf.me, rf.nextIndex, rf.matchIndex, rf.log.GetLen(), rf.lastIncludedIndex)
+	rf.mylog.DFprintf("heartBeats: raft: %v, nextIndex: %v, matchIndex: %v, len of log: %v, lastIncludedIndex: %v, identity: %v\n", 
+	rf.me, rf.nextIndex, rf.matchIndex, rf.log.GetLen(), rf.lastIncludedIndex, rf.identity)
 	
 	// oldterm , _:= rf.GetState()
 	oldterm := rf.currentTerm
 	for idx, _ := range rf.peers{
 		if idx != rf.me{
 			if rf.lastIncludedIndex >= rf.nextIndex[idx]{
-				rf.mylog.DFprintf("heartBeats: sendPeerInstallSnapshot to raft %v\n", idx)
+				rf.mylog.DFprintf("heartBeats: raft %v sendPeerInstallSnapshot to raft %v\n", rf.me, idx)
 				rf.sendPeerInstallSnapshot(idx, oldterm)
 			}else{
-				rf.mylog.DFprintf("heartBeats: sendPeerAppendEntries to raft %v\n", idx)
+				rf.mylog.DFprintf("heartBeats: raft %v sendPeerAppendEntries to raft %v\n", rf.me, idx)
 				rf.sendPeerAppendEntries(idx, oldterm)
 			}
 		}
@@ -772,8 +775,8 @@ func (rf *Raft) sendPeerAppendEntries(idx int, oldterm int){
 	prevLogIndex := nextIndex-1
 	e, ok := rf.log.GetEntryFromIndex(prevLogIndex-rf.lastIncludedIndex)
 	if !ok{
-		errMsg := fmt.Sprintf("err! prevLogIndex(%v)-rf.lastIncludedIndex(%v) = %v\n", 
-		prevLogIndex, rf.lastIncludedIndex, prevLogIndex-rf.lastIncludedIndex)
+		errMsg := fmt.Sprintf("fail: err! raft: %v, prevLogIndex(%v)-rf.lastIncludedIndex(%v) = %v\n", 
+		rf.me, prevLogIndex, rf.lastIncludedIndex, prevLogIndex-rf.lastIncludedIndex)
 		rf.mylog.DFprintf(errMsg)
 		log.Fatal(errMsg)
 
