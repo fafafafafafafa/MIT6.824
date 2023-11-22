@@ -348,6 +348,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 
 		if crash {
 			// log.Printf("shutdown servers\n")
+			mylog.DFprintf("*----------------ShutdownAll------------------\n")
+
 			for i := 0; i < nservers; i++ {
 				cfg.ShutdownServer(i)
 			}
@@ -359,6 +361,8 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			for i := 0; i < nservers; i++ {
 				cfg.StartServer(i)
 			}
+			mylog.DFprintf("*----------------ConnectAll------------------\n")
+
 			cfg.ConnectAll()
 		}
 
@@ -1146,6 +1150,7 @@ func SnapshotRPC3B(t *testing.T, mylog *raft.Mylog){
 	ck := cfg.makeClient(cfg.All())
 
 	cfg.begin("Test: InstallSnapshot RPC (3B)")
+	mylog.GoroutineStack()
 
 	Put(cfg, ck, "a", "A", nil, -1)
 	check(cfg, t, ck, "a", "A")
@@ -1247,7 +1252,7 @@ func SnapshotSize3B(t *testing.T, mylog *raft.Mylog){
 	ck := cfg.makeClient(cfg.All())
 
 	cfg.begin("Test: snapshot size is reasonable (3B)")
-
+	mylog.GoroutineStack()
 	for i := 0; i < 200; i++ {
 		Put(cfg, ck, "x", "0", nil, -1)
 		check(cfg, t, ck, "x", "0")

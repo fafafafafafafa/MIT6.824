@@ -11,6 +11,7 @@ import (
 	// "fmt"
 	// "runtime/pprof"
 	// "io"
+	"bytes"
 )
 
 const Debug = true
@@ -65,7 +66,7 @@ type KVServer struct {
 	dataset	map[string]string // key-value，存储的数据库
 	clientId2seqId	map[int64]int64  //
 	agreeChs map[int]chan Op  // 从applyCh接收信息，再通过agreeChs发送
-
+	stopCh chan struct{}
 	mylog *raft.Mylog
 }
 
@@ -178,45 +179,107 @@ func isSameOp(cmd1 Op, cmd2 Op) bool{
 	return cmd1.ClientId == cmd2.ClientId && cmd1.SeqId == cmd2.SeqId && cmd1.Method == cmd2.Method && cmd1.Key == cmd2.Key && cmd1.Value == cmd2.Value 
 }
 
+func (kv *KVServer) readDataset(data []byte){
+	if data == nil || len(data) < 1 { // bootstrap without any state?
+		return
+	}
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var dataset map[string]string
+	var clientId2seqId map[int64]int64
+	if d.Decode(&dataset) != nil ||
+	   d.Decode(&clientId2seqId) != nil{
+		kv.mylog.DFprintf("*kv.readDataset: decode failed! \n")
+	}else{
+		kv.dataset = dataset
+		kv.clientId2seqId = clientId2seqId
+		kv.mylog.DFprintf("readDataset: load kvserver:%v , dataset: %v \n", kv.me, kv.dataset)
+	}
+
+}
+
 func (kv *KVServer) waitApply(){
 	// 额外开一个线程，接受applyCh
 	// 根据index向相应的chan发送信号
+	lastApplied := 0
+
 	for kv.killed()==false{
- 		for  msg := range kv.applyCh{
+		select{
+		case msg := <- kv.applyCh:
 			// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
-			if msg.Command != nil{
+			kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, Msg: %+v\n", kv.me, msg)
+			if msg.SnapshotValid{
 				kv.mu.Lock()
-				var opMsg Op = msg.Command.(Op)
-				// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
-				curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-				// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
-				if !ok || opMsg.SeqId > curSeqId{
-					// only handle new request
-					switch opMsg.Method{
-					case "Put":
-						// kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
-						kv.dataset[opMsg.Key] = opMsg.Value
-					case "Append":
-						// kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)= (past)%v+(add)%v\n", 
-						// kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
-						kv.dataset[opMsg.Key] += opMsg.Value
-					}
-					// update clientId2seqId
-					// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
-	
-					kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+				if kv.rf.CondInstallSnapshot(msg.SnapshotTerm,
+					msg.SnapshotIndex, msg.Snapshot) {
 					
+					kv.dataset = make(map[string]string)
+					r := bytes.NewBuffer(msg.Snapshot)
+					d := labgob.NewDecoder(r)
+					var dataset map[string]string
+					var clientId2seqId map[int64]int64
+
+					if d.Decode(&dataset) != nil ||
+					   d.Decode(&clientId2seqId) != nil{
+						kv.mylog.DFprintf("*kv.waitApply: decode error\n")
+						log.Fatalf("*kv.waitApply: decode error\n")
+					}
+					kv.dataset = dataset
+					kv.clientId2seqId = clientId2seqId
+					lastApplied = msg.SnapshotIndex
+
 				}
 				kv.mu.Unlock()
-				
-				if _, isLeader := kv.rf.GetState(); isLeader {
-					ch := kv.getAgreeChs(msg.CommandIndex)
-					ch <- opMsg
+
+			}else if msg.CommandValid && msg.CommandIndex > lastApplied{
+				if msg.Command != nil{
+					kv.mu.Lock()
+					var opMsg Op = msg.Command.(Op)
+					kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
+					curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+					kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+					if !ok || opMsg.SeqId > curSeqId{
+						// only handle new request
+						switch opMsg.Method{
+						case "Put":
+							kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
+							kv.dataset[opMsg.Key] = opMsg.Value
+						case "Append":
+							kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)= (past)%v+(add)%v\n", 
+							kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
+							kv.dataset[opMsg.Key] += opMsg.Value
+						}
+						// update clientId2seqId
+						kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+		
+						kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+						
+					}
+					lastApplied = msg.CommandIndex
+
+					if (msg.CommandIndex+1) % 10 == 0{
+						w := new(bytes.Buffer)
+						e := labgob.NewEncoder(w)
+						// v := kv.dataset
+						e.Encode(kv.dataset)
+						e.Encode(kv.clientId2seqId)
+						// kv.mu.Unlock()
+						kv.rf.Snapshot(msg.CommandIndex, w.Bytes())
+						// kv.mu.Lock()
+
+					}
+					kv.mu.Unlock()
+					if _, isLeader := kv.rf.GetState(); isLeader {
+						ch := kv.getAgreeChs(msg.CommandIndex)
+						ch <- opMsg
+					}
+					
+	
 				}
-				
-
 			}
-
+		case <- kv.stopCh:
+			
 		}
 
  
@@ -225,6 +288,7 @@ func (kv *KVServer) waitApply(){
 	// close(kv.applyCh)
 	
 }
+
 
 //
 // the tester calls Kill() when a KVServer instance won't
@@ -240,6 +304,7 @@ func (kv *KVServer) Kill() {
 	atomic.StoreInt32(&kv.dead, 1)
 	kv.rf.Kill()
 	// Your code here, if desired.
+	close(kv.stopCh)
 }
 
 func (kv *KVServer) killed() bool {
@@ -279,7 +344,17 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.dataset = make(map[string]string)
 	kv.clientId2seqId = make(map[int64]int64)
 	kv.agreeChs = make(map[int]chan Op)
+	kv.stopCh = make(chan struct{})
+
+	kv.readDataset(persister.ReadSnapshot())
+
 	go kv.waitApply()
 	kv.mylog.DFprintf("*StartKVServer(): me: %v\n", me)
 	return kv
 }
+
+
+
+
+
+

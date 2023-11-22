@@ -96,6 +96,7 @@ type Raft struct {
 	applyCh chan ApplyMsg
 	applyCond *sync.Cond
 
+	stopCh chan struct{}
 	mylog *Mylog
 }
 
@@ -296,7 +297,13 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 			SnapshotTerm: args.LastIncludedTerm, 
 			SnapshotIndex: args.LastIncludedIndex,
 		}
-		rf.applyCh <- applyMsg
+		select{
+		case <- rf.stopCh:
+			return 
+		case rf.applyCh <- applyMsg: 
+			return 
+		}
+		
 
 	}
 
@@ -603,7 +610,7 @@ func (rf *Raft) Kill() {
 	atomic.StoreInt32(&rf.dead, 1)
 	// Your code here, if desired.
 	rf.applyCond.Broadcast()
-	
+	close(rf.stopCh)
 	rf.mylog.DFprintf("&&&& raft %v is killed! &&&&\n", rf.me)
 }
 
@@ -901,18 +908,22 @@ func (rf *Raft) applier() {
 		
 			lastApplied := rf.lastApplied + 1
 			for ;lastApplied <= rf.commitIndex; lastApplied++{
-				e, _ := rf.log.GetEntryFromIndex(lastApplied-rf.lastIncludedIndex)
-				// rf.mylog.DFprintf("applier: raft %v, apply cmd(%v), CommandIndex %v \n", rf.me, e.Command, lastApplied)
+				realIndex := lastApplied-rf.lastIncludedIndex
+				e, _ := rf.log.GetEntryFromIndex(realIndex)
+				rf.mylog.DFprintf("applier: raft %v, apply cmd(%+v), CommandIndex %v, realIndex %v \n", rf.me, e.Command, lastApplied, realIndex)
 				applyMsg := ApplyMsg{
 					CommandValid: true,	
 					Command: e.Command,
 					CommandIndex: lastApplied,
 				}
 				rf.mu.Unlock()
-				// go func(){
-				// 	rf.applyCh <- applyMsg
-				// }()
-				rf.applyCh <- applyMsg
+				select{
+				case <- rf.stopCh:
+					rf.mu.Lock()
+					return 
+				case rf.applyCh <- applyMsg:
+
+				}
 				rf.mu.Lock()
 			}
 			rf.lastApplied = lastApplied-1
@@ -922,7 +933,8 @@ func (rf *Raft) applier() {
 		
 		
 	}
-	close(rf.applyCh)
+	// rf.mylog.DFprintf("applier: raft: %v, close(rf.applyCh)\n", rf.me)
+	// close(rf.applyCh)
  
 }
 // The ticker go routine starts a new election if this peer hasn't received
@@ -1050,6 +1062,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.winElectionChan = make(chan struct{})
 	rf.applyCond = sync.NewCond(&rf.mu)
 	rf.applyCh = applyCh
+
+	rf.stopCh = make(chan struct{})
 	rf.mylog = mylog
 
 	rf.lastIncludedIndex = 0
