@@ -232,16 +232,22 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	defer rf.mu.Unlock()
 	// Your code here (2D).
 	if lastIncludedTerm > rf.lastIncludedTerm || (lastIncludedTerm == rf.lastIncludedTerm && lastIncludedIndex> rf.lastIncludedIndex){
+		index := lastIncludedIndex - rf.lastIncludedIndex
+		rf.log.DeleteEntriesBeforeIndex(index)
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
-		rf.log.DeleteEntriesAfterIndex(0)
-		e := Entry{
-			Term: rf.lastIncludedTerm,
-			Index: rf.lastIncludedIndex,
-			Command: -1, // it't won't be used
-		}
-		rf.log.Append(e)
 		rf.persistStateAndSnapshot(snapshot)
+		
+		// rf.lastIncludedIndex = lastIncludedIndex
+		// rf.lastIncludedTerm = lastIncludedTerm
+		// rf.log.DeleteEntriesAfterIndex(0)
+		// e := Entry{
+		// 	Term: rf.lastIncludedTerm,
+		// 	Index: rf.lastIncludedIndex,
+		// 	Command: -1, // it't won't be used
+		// }
+		// rf.log.Append(e)
+		// rf.persistStateAndSnapshot(snapshot)
 		
 		return true
 	}else{
@@ -898,7 +904,7 @@ func (rf *Raft) applier() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	rf.lastApplied = rf.lastIncludedIndex
-
+	rf.mylog.DFprintf("applier: start, raft: %v, rf.lastApplied: %v\n", rf.me, rf.lastApplied)
 	for rf.killed() == false{
 		
 		if rf.lastApplied >= rf.commitIndex{
@@ -910,7 +916,8 @@ func (rf *Raft) applier() {
 			for ;lastApplied <= rf.commitIndex; lastApplied++{
 				realIndex := lastApplied-rf.lastIncludedIndex
 				e, _ := rf.log.GetEntryFromIndex(realIndex)
-				rf.mylog.DFprintf("applier: raft %v, apply cmd(%+v), CommandIndex %v, realIndex %v \n", rf.me, e.Command, lastApplied, realIndex)
+				rf.mylog.DFprintf("applier: raft %v, apply cmd(%+v), CommandIndex %v, realIndex(%v)=lastApplied(%v)-rf.lastIncludedIndex(%v) \n", 
+				rf.me, e.Command, lastApplied, realIndex, lastApplied, rf.lastIncludedIndex)
 				applyMsg := ApplyMsg{
 					CommandValid: true,	
 					Command: e.Command,

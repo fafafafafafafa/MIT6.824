@@ -422,6 +422,15 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 				fmt.Printf("info: wrote history visualization to %s\n", file.Name())
 			}
 		}
+		// filename := "temp_visual"
+		// err = os.Rename(file.Name(),filename)
+		// if err != nil{
+		// 	// log.Fatalf("rename %v to %v failed!\n", file.Name(), filename)
+		// }
+		// if err := file.Close(); err != nil {
+		// 	// log.Fatal(err)
+		// }
+
 		cfg.mylog.DFprintf("Fail: history is not linearizable\n")
 
 		t.Fatal("Fail: history is not linearizable\n")

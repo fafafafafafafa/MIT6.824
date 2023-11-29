@@ -190,11 +190,11 @@ func (kv *KVServer) readDataset(data []byte){
 	var clientId2seqId map[int64]int64
 	if d.Decode(&dataset) != nil ||
 	   d.Decode(&clientId2seqId) != nil{
-		kv.mylog.DFprintf("*kv.readDataset: decode failed! \n")
+		kv.mylog.DFprintf("*kv.readDataset: kvserver: %v, decode failed! \n", kv.me)
 	}else{
 		kv.dataset = dataset
 		kv.clientId2seqId = clientId2seqId
-		kv.mylog.DFprintf("readDataset: load kvserver:%v , dataset: %v \n", kv.me, kv.dataset)
+		kv.mylog.DFprintf("readDataset: load kvserver: %v,\n dataset: %v,\n clientId2seqId: %v \n", kv.me, kv.dataset, kv.clientId2seqId)
 	}
 
 }
@@ -222,13 +222,14 @@ func (kv *KVServer) waitApply(){
 
 					if d.Decode(&dataset) != nil ||
 					   d.Decode(&clientId2seqId) != nil{
-						kv.mylog.DFprintf("*kv.waitApply: decode error\n")
-						log.Fatalf("*kv.waitApply: decode error\n")
+						kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, decode error\n", kv.me)
+						log.Fatalf("*kv.waitApply: kvserver: %v, decode error\n", kv.me)
 					}
 					kv.dataset = dataset
 					kv.clientId2seqId = clientId2seqId
 					lastApplied = msg.SnapshotIndex
-
+					kv.mylog.DFprintf("*kv.waitApply: CondInstallSnapshot, kvserver: %v,\n kv.dataset: %v,\n kv.clientId2seqId: %v,\n lastApplied: %v \n",
+					kv.me, kv.dataset, kv.clientId2seqId, lastApplied)
 				}
 				kv.mu.Unlock()
 
@@ -246,7 +247,7 @@ func (kv *KVServer) waitApply(){
 							kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
 							kv.dataset[opMsg.Key] = opMsg.Value
 						case "Append":
-							kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)= (past)%v+(add)%v\n", 
+							kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)=\n (past)%v+(add)%v\n", 
 							kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
 							kv.dataset[opMsg.Key] += opMsg.Value
 						}
@@ -267,6 +268,9 @@ func (kv *KVServer) waitApply(){
 						// kv.mu.Unlock()
 						kv.rf.Snapshot(msg.CommandIndex, w.Bytes())
 						// kv.mu.Lock()
+
+						kv.mylog.DFprintf("*kv.waitApply: Snapshot, kvserver: %v,\n kv.dataset: %v,\n kv.clientId2seqId: %v,\n lastApplied: %v \n",
+						kv.me, kv.dataset, kv.clientId2seqId, lastApplied)
 
 					}
 					kv.mu.Unlock()

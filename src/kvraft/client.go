@@ -65,18 +65,18 @@ func (ck *Clerk) Get(key string) string {
 		reply := &GetReply{}
 		ok := ck.sendGet(ck.leaderId, args, reply)
 
-		ck.mylog.DFprintf("*ck.Get: ok: %v, reply: %+v\n", ok, reply)
+		ck.mylog.DFprintf("*ck.Get:, leaderId: %v ok: %v, reply: %+v\n", ck.leaderId, ok, reply)
 		if !ok || reply.Err == ErrWrongLeader{
 			ck.mylog.DFprintf("*ck.Get: leaderId change, from %v to %v \n", ck.leaderId, (ck.leaderId+1)%len(ck.servers))
 
 			ck.leaderId = (ck.leaderId+1)%len(ck.servers)
 			continue
 		}else if reply.Err == ErrNoKey{
-			ck.mylog.DFprintf("*ck.Get: get ErrNoKey\n")
+			ck.mylog.DFprintf("*ck.Get:, leaderId: %v, get ErrNoKey\n", ck.leaderId)
 
 			return ""
 		}
-		ck.mylog.DFprintf("*ck.Get: get key: %v, value: %v\n", args.Key, reply.Value)
+		ck.mylog.DFprintf("*ck.Get: leaderId: %v, get key: %v, value: %v\n", ck.leaderId, args.Key, reply.Value)
 		return reply.Value
 	}
 
