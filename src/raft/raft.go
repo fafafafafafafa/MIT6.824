@@ -233,7 +233,18 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	// Your code here (2D).
 	if lastIncludedTerm > rf.lastIncludedTerm || (lastIncludedTerm == rf.lastIncludedTerm && lastIncludedIndex> rf.lastIncludedIndex){
 		index := lastIncludedIndex - rf.lastIncludedIndex
-		rf.log.DeleteEntriesBeforeIndex(index)
+		if index > rf.log.GetLen()-1{
+			rf.log.DeleteEntriesAfterIndex(0)
+			e := Entry{
+				Term: lastIncludedTerm,
+				Index: lastIncludedIndex,
+				Command: -1, // it't won't be used
+			}
+			rf.log.Append(e)
+		}else{
+			rf.log.DeleteEntriesBeforeIndex(index)
+
+		}
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
 		rf.persistStateAndSnapshot(snapshot)

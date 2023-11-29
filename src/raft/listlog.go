@@ -38,10 +38,9 @@ func (listLog *ListLog) DeleteEntriesBeforeIndex(index int) {
 	listLog.mu.Lock()
 	defer listLog.mu.Unlock()
 	if index < 0 || index > len(listLog.logEntry)-1{
-		// errMsg := error.New("index illegal! index(%v) \n", index)
-		// errMsg := fmt.Sprintf("listLog.DeleteEntriesBeforeIndex: index illegal! index = %v \n", index)
-		// listLog.mylog.DFprintf(errMsg)
-		// log.Fatal(errMsg)
+	
+		listLog.mylog.DFprintf("DeleteEntriesBeforeIndex: index is illegal, no change for lsitlog\n")
+		
 	}else{
 		listLog.logEntry = listLog.logEntry[index:]
 	}
