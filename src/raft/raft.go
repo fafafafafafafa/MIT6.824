@@ -27,7 +27,7 @@ import (
 	"time"
 	"math/rand"
 	"fmt"
-	"log"
+	// "log"
 )
 
 
@@ -259,9 +259,11 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 		// }
 		// rf.log.Append(e)
 		// rf.persistStateAndSnapshot(snapshot)
-		
+		rf.mylog.DFprintf("CondInstallSnapshot: raft: %v, success\n", rf.me)
+
 		return true
 	}else{
+		rf.mylog.DFprintf("CondInstallSnapshot: raft: %v, fail\n", rf.me)
 		return false
 	}
 	
@@ -278,6 +280,7 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 
 	realIndex := index-rf.lastIncludedIndex
 	e, ok := rf.log.GetEntryFromIndex(realIndex)
+	rf.mylog.DFprintf("Snapshot: realIndex: %v, ok: %v, len of log: %v\n", realIndex, ok, rf.log.GetLen())
 	// if ok && e.Term != 0{
 	if ok{
 		rf.lastIncludedIndex = e.Index
@@ -436,11 +439,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		e, ok := rf.log.GetEntryFromIndex(args.PrevLogIndex-rf.lastIncludedIndex);
 		if !ok{
-			rf.mylog.DFprintf("AppendEntries: get error! raft: %v to raft: %v, args.PrevLogIndex(%v) - rf.lastIncludedIndex(%v) = %v \n",
-			args.LeaderId, rf.me, args.PrevLogIndex, rf.lastIncludedIndex, args.PrevLogIndex-rf.lastIncludedIndex)
+			rf.mylog.DFprintf("AppendEntries: get error! raft: %v to raft: %v, args.PrevLogIndex(%v) - rf.lastIncludedIndex(%v) = %v, len: %v \n",
+			args.LeaderId, rf.me, args.PrevLogIndex, rf.lastIncludedIndex, args.PrevLogIndex-rf.lastIncludedIndex, rf.log.GetLen())
 			reply.Success = false
-			reply.ConflictIndex = lastEntry.Index
-			rf.mylog.DFprintf("AppendEntries: reply.ConflictIndex = %v\n", lastEntry.Index)
+			if (args.PrevLogIndex-rf.lastIncludedIndex) < 0{
+				reply.ConflictIndex = args.PrevLogIndex
+			}else{
+				reply.ConflictIndex = lastEntry.Index
+			}
+			
+			rf.mylog.DFprintf("AppendEntries: raft: %v to raft: %v, reply.ConflictIndex = %v\n", args.LeaderId, rf.me, lastEntry.Index)
 			return 
 		}
 
@@ -504,7 +512,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			conflictTerm := e.Term
 			
 			conflictIndex := args.PrevLogIndex-1
-			for ; conflictIndex > 0; conflictIndex--{
+			for ; conflictIndex-rf.lastIncludedIndex > 0; conflictIndex--{
 				if ee, _ := rf.log.GetEntryFromIndex(conflictIndex-rf.lastIncludedIndex); ee.Term != conflictTerm{
 					
 					break
@@ -799,11 +807,12 @@ func (rf *Raft) sendPeerAppendEntries(idx int, oldterm int){
 	prevLogIndex := nextIndex-1
 	e, ok := rf.log.GetEntryFromIndex(prevLogIndex-rf.lastIncludedIndex)
 	if !ok{
-		errMsg := fmt.Sprintf("fail: err! raft: %v, prevLogIndex(%v)-rf.lastIncludedIndex(%v) = %v\n", 
-		rf.me, prevLogIndex, rf.lastIncludedIndex, prevLogIndex-rf.lastIncludedIndex)
+		errMsg := fmt.Sprintf("fail: err! raft(%v) to raft(%v), prevLogIndex(%v)-rf.lastIncludedIndex(%v) = %v\n", 
+		rf.me, idx, prevLogIndex, rf.lastIncludedIndex, prevLogIndex-rf.lastIncludedIndex)
 		rf.mylog.DFprintf(errMsg)
-		log.Fatal(errMsg)
-
+		// log.Fatal(errMsg)
+		rf.sendPeerInstallSnapshot(idx, oldterm)
+		return 
 	}
 	prevLogTerm := e.Term
 	// if e, ok := rf.log[prevLogIndex]; ok{
