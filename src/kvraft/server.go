@@ -85,9 +85,9 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		select{
 		case opMsg = <- ch:
 			kv.mu.Lock()
-			curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-			kv.mylog.DFprintf("*kv.Get: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
-			if !ok || opMsg.SeqId >= curSeqId{
+			// curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+			// kv.mylog.DFprintf("*kv.Get: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+			// if !ok || opMsg.SeqId >= curSeqId{
 				// only handle new request
 				v, ok := kv.dataset[opMsg.Key]
 				if !ok{
@@ -99,11 +99,11 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 
 				}
 				// update clientId2seqId
-				kv.mylog.DFprintf("*kv.Get: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+				// kv.mylog.DFprintf("*kv.Get: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 
 				// kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
 				
-			}
+			// }
 			kv.mu.Unlock()
 			close(ch)
 			
@@ -111,9 +111,9 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 			reply.Err = ErrWrongLeader
 		}
 
-		if !isSameOp(op, opMsg){
-			reply.Err = ErrWrongLeader
-		}
+		// if !isSameOp(op, opMsg){
+		// 	reply.Err = ErrWrongLeader
+		// }
 	}else{
 		kv.mylog.DFprintf("*kv.Get: is not leader, kvserver: %v\n", kv.me)
 
@@ -144,10 +144,10 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	if isLeader{
 		ch := kv.getAgreeChs(index)
 		kv.mylog.DFprintf("*kv.PutAppend: kvserver: %v, get agreeChs[%v]\n", kv.me, index)
-		var opMsg Op
+		// var opMsg Op
 		select{
-		case opMsg = <- ch:
-
+		// case opMsg = <- ch:
+		case <-ch:
 			reply.Err = OK
 			close(ch)
 			
@@ -157,27 +157,27 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 			reply.Err = ErrWrongLeader
 		}
 
-		if !isSameOp(op, opMsg){
-			kv.mylog.DFprintf("*kv.PutAppend: different, kvserver: %v, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
-			kv.me,
-			op.ClientId, opMsg.ClientId, 
-			op.SeqId, opMsg.SeqId,
-			op.Method, opMsg.Method,
-			op.Key, opMsg.Key,
-			op.Value, opMsg.Value,
-			)
+		// if !isSameOp(op, opMsg){
+		// 	kv.mylog.DFprintf("*kv.PutAppend: different, kvserver: %v, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
+		// 	kv.me,
+		// 	op.ClientId, opMsg.ClientId, 
+		// 	op.SeqId, opMsg.SeqId,
+		// 	op.Method, opMsg.Method,
+		// 	op.Key, opMsg.Key,
+		// 	op.Value, opMsg.Value,
+		// 	)
 
-			reply.Err = ErrWrongLeader
-		}
+		// 	reply.Err = ErrWrongLeader
+		// }
 	}else{
 		reply.Err = ErrWrongLeader
 	}
 
 
 }
-func isSameOp(cmd1 Op, cmd2 Op) bool{
-	return cmd1.ClientId == cmd2.ClientId && cmd1.SeqId == cmd2.SeqId && cmd1.Method == cmd2.Method && cmd1.Key == cmd2.Key && cmd1.Value == cmd2.Value 
-}
+// func isSameOp(cmd1 Op, cmd2 Op) bool{
+// 	return cmd1.ClientId == cmd2.ClientId && cmd1.SeqId == cmd2.SeqId && cmd1.Method == cmd2.Method && cmd1.Key == cmd2.Key && cmd1.Value == cmd2.Value 
+// }
 
 func (kv *KVServer) readDataset(data []byte){
 	if data == nil || len(data) < 1 { // bootstrap without any state?
