@@ -127,3 +127,18 @@ func (listLog *ListLog) GetEntriesAfterIndex(index int) []Entry{
 	}
 }
 
+func (listLog *ListLog) SetEntryAtFirst(e Entry){
+	listLog.mu.Lock()
+	defer listLog.mu.Unlock()
+	l := make([]Entry, 0)
+	l = append(l, e)
+	if len(listLog.logEntry) == 0{
+		listLog.logEntry = append(listLog.logEntry, e)
+	}else{
+		listLog.logEntry[0] = e
+	}
+	// listLog.logEntry = append(l, listLog.logEntry...)
+
+}
+
+
