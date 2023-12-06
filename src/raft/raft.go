@@ -231,20 +231,29 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	// Your code here (2D).
-	if lastIncludedTerm > rf.lastIncludedTerm || (lastIncludedTerm == rf.lastIncludedTerm && lastIncludedIndex> rf.lastIncludedIndex){
+	rf.mylog.DFprintf("CondInstallSnapshot: raft %v, lastIncludedTerm(%v)-rf.lastIncludedTerm(%v), lastIncludedIndex(%v)-rf.lastIncludedIndex(%v)\n",
+	 rf.me, lastIncludedTerm, rf.lastIncludedTerm, lastIncludedIndex, rf.lastIncludedIndex)
+
+	if lastIncludedTerm > rf.lastIncludedTerm || (lastIncludedTerm == rf.lastIncludedTerm && lastIncludedIndex > rf.lastIncludedIndex){
 		index := lastIncludedIndex - rf.lastIncludedIndex
 		if index > rf.log.GetLen()-1{
 			rf.log.DeleteEntriesAfterIndex(0)
-			e := Entry{
-				Term: lastIncludedTerm,
-				Index: lastIncludedIndex,
-				Command: -1, // it't won't be used
-			}
-			rf.log.Append(e)
+			// e := Entry{
+			// 	Term: lastIncludedTerm,
+			// 	Index: lastIncludedIndex,
+			// 	Command: -1, // it't won't be used
+			// }
+			// rf.log.Append(e)
 		}else{
 			rf.log.DeleteEntriesBeforeIndex(index)
-
 		}
+		e := Entry{
+			Term: lastIncludedTerm,
+			Index: lastIncludedIndex,
+			Command: -1, // it't won't be used
+		}
+		rf.log.SetEntryAtFirst(e)
+
 		rf.lastIncludedIndex = lastIncludedIndex
 		rf.lastIncludedTerm = lastIncludedTerm
 		rf.persistStateAndSnapshot(snapshot)
@@ -259,9 +268,10 @@ func (rf *Raft) CondInstallSnapshot(lastIncludedTerm int, lastIncludedIndex int,
 		// }
 		// rf.log.Append(e)
 		// rf.persistStateAndSnapshot(snapshot)
-		
+		rf.mylog.DFprintf("CondInstallSnapshot: raft %v, success\n", rf.me)
 		return true
 	}else{
+		rf.mylog.DFprintf("CondInstallSnapshot: raft %v, fail\n", rf.me)
 		return false
 	}
 	
@@ -435,14 +445,21 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		
 
 		e, ok := rf.log.GetEntryFromIndex(args.PrevLogIndex-rf.lastIncludedIndex);
+
 		if !ok{
 			rf.mylog.DFprintf("AppendEntries: get error! raft: %v to raft: %v, args.PrevLogIndex(%v) - rf.lastIncludedIndex(%v) = %v \n",
 			args.LeaderId, rf.me, args.PrevLogIndex, rf.lastIncludedIndex, args.PrevLogIndex-rf.lastIncludedIndex)
 			reply.Success = false
-			reply.ConflictIndex = lastEntry.Index
-			rf.mylog.DFprintf("AppendEntries: reply.ConflictIndex = %v\n", lastEntry.Index)
+			if (args.PrevLogIndex-rf.lastIncludedIndex) < 0{
+				reply.ConflictIndex = rf.lastIncludedIndex
+			}else{
+				reply.ConflictIndex = lastEntry.Index
+			}
+			rf.mylog.DFprintf("AppendEntries: reply.ConflictIndex = %v\n", reply.ConflictIndex)
 			return 
 		}
+		rf.mylog.DFprintf("AppendEntries: raft: %v to raft: %v, args.PrevLogIndex: %v to e.Index: %v, args.PrevLogTerm: %v to e.Term: %v, len of entries: %v, \n",
+		args.LeaderId, rf.me, args.PrevLogIndex, e.Index, args.PrevLogTerm, e.Term, rf.log.GetLen())
 
 		if args.PrevLogIndex == e.Index && e.Term == args.PrevLogTerm{
 			// rf's log is same with leader's log (0 to PrevLogIndex)
@@ -504,7 +521,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			conflictTerm := e.Term
 			
 			conflictIndex := args.PrevLogIndex-1
-			for ; conflictIndex > 0; conflictIndex--{
+			for ; conflictIndex-rf.lastIncludedIndex > 0; conflictIndex--{
 				if ee, _ := rf.log.GetEntryFromIndex(conflictIndex-rf.lastIncludedIndex); ee.Term != conflictTerm{
 					
 					break
