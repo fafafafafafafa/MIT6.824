@@ -42,6 +42,8 @@ type config struct {
 	clerks       map[*Clerk][]string
 	nextClientId int
 	start        time.Time // time at which make_config() was called
+
+	mylog  		 *raft.Mylog
 }
 
 func (cfg *config) checkTimeout() {
@@ -286,7 +288,7 @@ func (cfg *config) StartServer(i int) {
 
 	cfg.mu.Unlock()
 
-	cfg.servers[i] = StartServer(ends, i, cfg.saved[i])
+	cfg.servers[i] = StartServer(ends, i, cfg.saved[i], cfg.mylog)
 
 	kvsvc := labrpc.MakeService(cfg.servers[i])
 	rfsvc := labrpc.MakeService(cfg.servers[i].rf)
