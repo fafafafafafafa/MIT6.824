@@ -7,6 +7,7 @@ import "sync"
 import "6.824/labgob"
 import "time"
 import "sync/atomic"
+import "sort"
 
 type ShardCtrler struct {
 	mu      sync.Mutex
@@ -20,6 +21,9 @@ type ShardCtrler struct {
 	clientId2seqId	map[int64]int64 
 	agreeChs map[int]chan Op
 	stopCh chan struct{}
+
+	// gid2count map[int]int
+	// gids []int
 
 	mylog *raft.Mylog
 }
@@ -54,8 +58,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	// sc.mu.Lock()
 	// defer sc.mu.Unlock()
 	
-	
-	op := &Op{
+	op := Op{
 		Method: "Join",
 		ClientId: args.ClientId,
 		SeqId: args.SeqId,
@@ -64,7 +67,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	index, _, isleader := sc.rf.Start(op)
 	if isleader{
 		ch := sc.getAgreeChs(index)
-		// sc.mylog.DFprintf("*sc.Join: ShardCtrler: %v, get agreeChs[%v]\n", sc.me, index)
+		sc.mylog.DFprintf("**sc.Join: ShardCtrler: %v, get agreeChs[%v]\n", sc.me, index)
 		// var opMsg Op
 		select{
 		// case opMsg = <- ch:
@@ -73,7 +76,7 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 			close(ch)
 			
 		case <- time.After(500*time.Millisecond): // 500ms
-			// sc.mylog.DFprintf("*sc.Join: ShardCtrler: %v, get opMsg timeout\n", sc.me)
+			sc.mylog.DFprintf("**sc.Join: ShardCtrler: %v, get opMsg timeout\n", sc.me)
 
 			reply.WrongLeader = true
 		}
@@ -84,11 +87,37 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 
 func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 	// Your code here.
+	op := Op{
+		Method: "Leave",
+		ClientId: args.ClientId,
+		SeqId: args.SeqId,
+		GIDs: args.GIDs,
+
+	}
+	index, _, isleader := sc.rf.Start(op)
+	if isleader{
+		ch := sc.getAgreeChs(index)
+		sc.mylog.DFprintf("**sc.Leave: ShardCtrler: %v, get agreeChs[%v]\n", sc.me, index)
+		// var opMsg Op
+		select{
+		// case opMsg = <- ch:
+		case <-ch:
+			reply.WrongLeader = false
+			close(ch)
+			
+		case <- time.After(500*time.Millisecond): // 500ms
+			sc.mylog.DFprintf("**sc.Leave: ShardCtrler: %v, get opMsg timeout\n", sc.me)
+
+			reply.WrongLeader = true
+		}
+	}else{
+		reply.WrongLeader = true
+	}
 }
 
 func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	// Your code here.
-	op := &Op{
+	op := Op{
 		Method: "Move",
 		ClientId: args.ClientId,
 		SeqId: args.SeqId,
@@ -98,7 +127,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	index, _, isleader := sc.rf.Start(op)
 	if isleader{
 		ch := sc.getAgreeChs(index)
-		// sc.mylog.DFprintf("*sc.Join: ShardCtrler: %v, get agreeChs[%v]\n", sc.me, index)
+		sc.mylog.DFprintf("**sc.Move: ShardCtrler: %v, get agreeChs[%v]\n", sc.me, index)
 		// var opMsg Op
 		select{
 		// case opMsg = <- ch:
@@ -107,7 +136,7 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 			close(ch)
 			
 		case <- time.After(500*time.Millisecond): // 500ms
-			// sc.mylog.DFprintf("*sc.Join: ShardCtrler: %v, get opMsg timeout\n", sc.me)
+			sc.mylog.DFprintf("**sc.Move: ShardCtrler: %v, get opMsg timeout\n", sc.me)
 
 			reply.WrongLeader = true
 		}
@@ -118,6 +147,37 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 
 func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	// Your code here.
+	op := Op{
+		Method: "Query",
+		ClientId: args.ClientId,
+		SeqId: args.SeqId,
+		Num: args.Num,
+
+	}
+	index, _, isleader := sc.rf.Start(op)
+	if isleader{
+		ch := sc.getAgreeChs(index)
+		sc.mylog.DFprintf("**sc.Query: ShardCtrler: %v, get agreeChs[%v]\n", sc.me, index)
+		var opMsg Op
+		select{
+		case opMsg = <- ch:
+			reply.WrongLeader = false
+			close(ch)
+			sc.mu.Lock()
+			if opMsg.Num == -1 || opMsg.Num >= len(sc.configs){
+				reply.Config = sc.configs[len(sc.configs)-1]
+			}else{
+				reply.Config = sc.configs[opMsg.Num]
+			}
+			sc.mu.Unlock()
+		case <- time.After(500*time.Millisecond): // 500ms
+			sc.mylog.DFprintf("**sc.Query: ShardCtrler: %v, get opMsg timeout\n", sc.me)
+
+			reply.WrongLeader = true
+		}
+	}else{
+		reply.WrongLeader = true
+	}
 }
 func CopyConfig(cfg Config) Config{
 	cfg2 := Config{
@@ -130,6 +190,79 @@ func CopyConfig(cfg Config) Config{
 	}
 	return cfg2
 }
+func getMinMaxGroup(gids []int, gid2shardIdx map[int] []int)(int, int){
+	min := 257
+	minGid := 0 
+	max := 0
+	maxGid := 0
+
+	for _, gid := range gids {
+		if len(gid2shardIdx[gid]) > max {
+			max = len(gid2shardIdx[gid])
+			maxGid = gid
+		}
+		if len(gid2shardIdx[gid]) < min {
+			min = len(gid2shardIdx[gid])
+			minGid = gid
+		}
+	}
+	return minGid, maxGid
+
+
+}
+func (sc *ShardCtrler) rebalance(config *Config){
+	// count
+	var gids []int
+	for gid, _ := range config.Groups{
+		gids = append(gids, gid)
+	}
+	sort.Ints(gids)
+	sc.mylog.DFprintf("**rebalance: ShardCtrler: %v, gids: %v\n", sc.me, gids)
+
+	gid2shardIdx := map[int] []int{}
+	
+	for i, gid := range config.Shards {
+		gid2shardIdx[gid] = append(gid2shardIdx[gid], i)
+	}
+	sc.mylog.DFprintf("**rebalance: with zero, ShardCtrler: %v, gid2shardIdx: %+v\n", sc.me, gid2shardIdx)
+	if _, ok := gid2shardIdx[0]; ok{ 
+		// have no-distributed shards
+		for i := 0; i < len(gid2shardIdx[0]); i++{
+			minGid, _ := getMinMaxGroup(gids, gid2shardIdx)
+			if minGid == 0{
+				// no group
+				break
+			}
+			config.Shards[gid2shardIdx[0][i]] = minGid
+
+			gid2shardIdx[minGid] = append(gid2shardIdx[minGid], gid2shardIdx[0][i])
+
+		}
+		delete(gid2shardIdx, 0)
+	}
+	sc.mylog.DFprintf("**rebalance: no zero, ShardCtrler: %v, gid2shardIdx: %+v\n", sc.me, gid2shardIdx)
+
+	for{
+		minGid, maxGid := getMinMaxGroup(gids, gid2shardIdx)
+		if minGid == 0 || maxGid == 0 || len(gid2shardIdx[minGid])+1 >= len(gid2shardIdx[maxGid]){
+			break
+		}
+
+		// move
+		sc.mylog.DFprintf("**rebalance: sc: %v, move before: maxGidShardIdx[%v] %v, minGidShardIdx[%v] %v\n", 
+		sc.me, maxGid, gid2shardIdx[maxGid], minGid, gid2shardIdx[minGid])
+
+		i := gid2shardIdx[maxGid][0]
+		gid2shardIdx[minGid] = append(gid2shardIdx[minGid], i)
+		config.Shards[i] = minGid
+		gid2shardIdx[maxGid] = gid2shardIdx[maxGid][1:]
+
+		sc.mylog.DFprintf("**rebalance: sc: %v, move after: maxGidShardIdx[%v] %v, minGidShardIdx[%v] %v\n", 
+		sc.me, maxGid, gid2shardIdx[maxGid], minGid, gid2shardIdx[minGid])
+
+	}
+	
+}
 
 func (sc *ShardCtrler) waitApply(){
 	// 额外开一个线程，接受applyCh
@@ -139,7 +272,7 @@ func (sc *ShardCtrler) waitApply(){
 	for sc.killed()==false{
 		select{
 		case msg := <- sc.applyCh:			
-			// sc.mylog.DFprintf("*sc.waitApply: ShardCtrler: %v, Msg: %+v\n", sc.me, msg)
+			sc.mylog.DFprintf("**sc.waitApply: ShardCtrler: %v, Msg: %+v\n", sc.me, msg)
 			if msg.SnapshotValid{
 				sc.mu.Lock()
 				if sc.rf.CondInstallSnapshot(msg.SnapshotTerm,
@@ -152,32 +285,47 @@ func (sc *ShardCtrler) waitApply(){
 				if msg.Command != nil{
 					sc.mu.Lock()
 					var opMsg Op = msg.Command.(Op)
-					sc.mylog.DFprintf("*sc.waitApply: ShardCtrler: %v, get opMsg: %+v\n", sc.me, opMsg)
+					sc.mylog.DFprintf("**sc.waitApply: ShardCtrler: %v, get opMsg: %+v\n", sc.me, opMsg)
 					curSeqId, ok := sc.clientId2seqId[opMsg.ClientId]
-					sc.mylog.DFprintf("*sc.waitApply: ShardCtrler: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", sc.me, ok, opMsg.SeqId, curSeqId)
+					sc.mylog.DFprintf("**sc.waitApply: ShardCtrler: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", sc.me, ok, opMsg.SeqId, curSeqId)
 					if !ok || opMsg.SeqId > curSeqId{
 						// only handle new request
+						configNum := len(sc.configs)
+						lastConfig := sc.configs[configNum-1]
+						newConfig := CopyConfig(lastConfig)
+						sc.mylog.DFprintf("**sc.waitApply: ShardCtrler: %v, newConfig.Groups: %+v\n", sc.me, newConfig.Groups)
+						newConfig.Num = configNum
+
 						switch opMsg.Method{
 						case "Join":
-						case "Leave":
-						case "Move":
-							configNum := len(sc.configs)
-							lastConfig := sc.configs[configNum-1]
-							newConfig := CopyConfig(lastConfig)
-							sc.mylog.DFprintf("*sc.waitApply: ShardCtrler: %v, newConfig.Groups: %+v\n", sc.me, newConfig.Groups)
-
-							newConfig.Num = configNum
-							newConfig.Shards[opMsg.Shard] = opMsg.GID 
-							sc.configs = append(sc.configs, newConfig)
-						case "Query":
-							if opMsg.Num == -1 || opMsg.Num > len(sc.configs){
-								
+							for gid, servers := range opMsg.Servers{
+								if _, ok := lastConfig.Groups[gid]; !ok{
+									newConfig.Groups[gid] = servers
+								}
 							}
+							// rebalance
+							sc.rebalance(&newConfig)
+							sc.configs = append(sc.configs, newConfig)		
 
-
+						case "Leave":
+							for _, gid := range opMsg.GIDs{
+								if _, ok := lastConfig.Groups[gid]; ok{
+									delete(newConfig.Groups, gid)
+									for i, ggid := range lastConfig.Shards{
+										if ggid == gid{
+											newConfig.Shards[i] = 0
+										}
+									}
+								}
+							}
+							sc.rebalance(&newConfig)
+							sc.configs = append(sc.configs, newConfig)		
+						case "Move":
+							newConfig.Shards[opMsg.Shard] = opMsg.GID 
+							sc.configs = append(sc.configs, newConfig)		
 						}
 						// update clientId2seqId
-						sc.mylog.DFprintf("*sc.waitApply: ShardCtrler: %v, ClientId: %v, SeqId from %v to %v\n", sc.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+						sc.mylog.DFprintf("**sc.waitApply: ShardCtrler: %v, ClientId: %v, SeqId from %v to %v\n", sc.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 		
 						sc.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
 						
@@ -204,7 +352,7 @@ func (sc *ShardCtrler) waitApply(){
 
  
 	}
-	sc.mylog.DFprintf("*sc.waitApply(): end, ShardCtrler: %v\n", sc.me)
+	sc.mylog.DFprintf("**sc.waitApply(): end, ShardCtrler: %v\n", sc.me)
 	// close(kv.applyCh)
 	
 }
@@ -254,7 +402,10 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 
 	// Your code here.
 	sc.clientId2seqId = make(map[int64]int64, 0)
-	sc.mylog = mylog
+	sc.agreeChs = make(map[int]chan Op)
+	sc.stopCh = make(chan struct{})
 
+	sc.mylog = mylog
+	go sc.waitApply()
 	return sc
 }

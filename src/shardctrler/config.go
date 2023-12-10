@@ -176,7 +176,7 @@ func (cfg *config) makeClient(to []int) *Clerk {
 		cfg.net.Connect(endnames[j], j)
 	}
 
-	ck := MakeClerk(random_handles(ends))
+	ck := MakeClerk(random_handles(ends), cfg.mylog)
 	cfg.clerks[ck] = endnames
 	cfg.nextClientId++
 	cfg.ConnectClientUnlocked(ck, to)
@@ -333,7 +333,7 @@ func (cfg *config) make_partition() ([]int, []int) {
 	return p1, p2
 }
 
-func make_config(t *testing.T, n int, unreliable bool) *config {
+func make_config(t *testing.T, n int, unreliable bool, mylog *raft.Mylog) *config {
 	runtime.GOMAXPROCS(4)
 	cfg := &config{}
 	cfg.t = t
@@ -345,6 +345,7 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 	cfg.clerks = make(map[*Clerk][]string)
 	cfg.nextClientId = cfg.n + 1000 // client ids start 1000 above the highest serverid
 	cfg.start = time.Now()
+	cfg.mylog = mylog
 
 	// create a full set of KV servers.
 	for i := 0; i < cfg.n; i++ {

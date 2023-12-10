@@ -5,9 +5,20 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"flag"
+	"strconv"
+	"os"
+	"6.824/raft"
+	"log"
 )
 
 // import "time"
+func DPrintf(format string, a ...interface{}) (n int, err error) {
+	if true {
+		log.Printf(format, a...)
+	}
+	return
+}
 
 func check(t *testing.T, groups []int, ck *Clerk) {
 	c := ck.Query(-1)
@@ -78,14 +89,52 @@ func check_same_config(t *testing.T, c1 Config, c2 Config) {
 	}
 }
 
-func TestBasic(t *testing.T) {
+func TestBasic(t *testing.T){
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4A/TestBasic"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Basic(t, &mylog)
+		w.Close()
+	}
+}
+func Basic(t *testing.T, mylog *raft.Mylog) {
 	const nservers = 3
-	cfg := make_config(t, nservers, false)
+	cfg := make_config(t, nservers, false, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient(cfg.All())
 
 	fmt.Printf("Test: Basic leave/join ...\n")
+	mylog.DFprintf("Test: Basic leave/join ...\n")
 
 	cfa := make([]Config, 6)
 	cfa[0] = ck.Query(-1)
@@ -105,10 +154,12 @@ func TestBasic(t *testing.T) {
 	cfx := ck.Query(-1)
 	sa1 := cfx.Groups[gid1]
 	if len(sa1) != 3 || sa1[0] != "x" || sa1[1] != "y" || sa1[2] != "z" {
-		t.Fatalf("wrong servers for gid %v: %v\n", gid1, sa1)
+		mylog.DFprintf("fail: wrong servers for gid %v: %v\n", gid1, sa1)
+		t.Fatalf("fail: wrong servers for gid %v: %v\n", gid1, sa1)
 	}
 	sa2 := cfx.Groups[gid2]
 	if len(sa2) != 3 || sa2[0] != "a" || sa2[1] != "b" || sa2[2] != "c" {
+		mylog.DFprintf("fail: wrong servers for gid %v: %v\n", gid2, sa2)
 		t.Fatalf("wrong servers for gid %v: %v\n", gid2, sa2)
 	}
 
@@ -120,8 +171,10 @@ func TestBasic(t *testing.T) {
 	cfa[5] = ck.Query(-1)
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 
 	fmt.Printf("Test: Historical queries ...\n")
+	mylog.DFprintf("Test: Historical queries ...\n")
 
 	for s := 0; s < nservers; s++ {
 		cfg.ShutdownServer(s)
@@ -134,8 +187,11 @@ func TestBasic(t *testing.T) {
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 
 	fmt.Printf("Test: Move ...\n")
+	mylog.DFprintf("Test: Move ...\n")
+
 	{
 		var gid3 int = 503
 		ck.Join(map[int][]string{gid3: []string{"3a", "3b", "3c"}})
@@ -148,6 +204,8 @@ func TestBasic(t *testing.T) {
 				if cf.Shards[i] != gid3 {
 					cf1 := ck.Query(-1)
 					if cf1.Num <= cf.Num {
+						mylog.DFprintf("fail: Move should increase Config.Num\n")
+
 						t.Fatalf("Move should increase Config.Num")
 					}
 				}
@@ -156,6 +214,7 @@ func TestBasic(t *testing.T) {
 				if cf.Shards[i] != gid4 {
 					cf1 := ck.Query(-1)
 					if cf1.Num <= cf.Num {
+						mylog.DFprintf("fail: Move should increase Config.Num\n")
 						t.Fatalf("Move should increase Config.Num")
 					}
 				}
@@ -165,11 +224,17 @@ func TestBasic(t *testing.T) {
 		for i := 0; i < NShards; i++ {
 			if i < NShards/2 {
 				if cf2.Shards[i] != gid3 {
+					mylog.DFprintf("fail: expected shard %v on gid %v actually %v\n", 
+						i, gid3, cf2.Shards[i])
+
 					t.Fatalf("expected shard %v on gid %v actually %v",
 						i, gid3, cf2.Shards[i])
 				}
 			} else {
 				if cf2.Shards[i] != gid4 {
+					mylog.DFprintf("fail: expected shard %v on gid %v actually %v\n",
+						i, gid4, cf2.Shards[i])
+
 					t.Fatalf("expected shard %v on gid %v actually %v",
 						i, gid4, cf2.Shards[i])
 				}
@@ -179,8 +244,10 @@ func TestBasic(t *testing.T) {
 		ck.Leave([]int{gid4})
 	}
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 
 	fmt.Printf("Test: Concurrent leave/join ...\n")
+	mylog.DFprintf("Test: Concurrent leave/join ...\n")
 
 	const npara = 10
 	var cka [npara]*Clerk
@@ -207,8 +274,10 @@ func TestBasic(t *testing.T) {
 	check(t, gids, ck)
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 
 	fmt.Printf("Test: Minimal transfers after joins ...\n")
+	mylog.DFprintf("Test: Minimal transfers after joins ...\n")
 
 	c1 := ck.Query(-1)
 	for i := 0; i < 5; i++ {
@@ -223,6 +292,8 @@ func TestBasic(t *testing.T) {
 		for j := 0; j < len(c1.Shards); j++ {
 			if c2.Shards[j] == i {
 				if c1.Shards[j] != i {
+					mylog.DFprintf("fail: non-minimal transfer after Join()s\n")
+
 					t.Fatalf("non-minimal transfer after Join()s")
 				}
 			}
@@ -230,8 +301,10 @@ func TestBasic(t *testing.T) {
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 
 	fmt.Printf("Test: Minimal transfers after leaves ...\n")
+	mylog.DFprintf("Test: Minimal transfers after leaves ...\n")
 
 	for i := 0; i < 5; i++ {
 		ck.Leave([]int{int(npara + 1 + i)})
@@ -241,6 +314,7 @@ func TestBasic(t *testing.T) {
 		for j := 0; j < len(c1.Shards); j++ {
 			if c2.Shards[j] == i {
 				if c3.Shards[j] != i {
+					mylog.DFprintf("fail: non-minimal transfer after Leave()s\n")
 					t.Fatalf("non-minimal transfer after Leave()s")
 				}
 			}
@@ -248,11 +322,50 @@ func TestBasic(t *testing.T) {
 	}
 
 	fmt.Printf("  ... Passed\n")
-}
+	mylog.DFprintf("  ... Passed\n")
 
+}
 func TestMulti(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4A/TestMulti"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Multi(t, &mylog)
+		w.Close()
+	}
+
+}
+func Multi(t *testing.T, mylog *raft.Mylog) {
 	const nservers = 3
-	cfg := make_config(t, nservers, false)
+	cfg := make_config(t, nservers, false, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient(cfg.All())
