@@ -67,6 +67,8 @@ type config struct {
 	clerks       map[*Clerk][]string
 	nextClientId int
 	maxraftstate int
+
+	mylog *raft.Mylog
 }
 
 func (cfg *config) checkTimeout() {
@@ -135,7 +137,7 @@ func (cfg *config) makeClient() *Clerk {
 		cfg.net.Connect(name, servername)
 		cfg.net.Enable(name, true)
 		return end
-	})
+	}, cfg.mylog)
 	cfg.clerks[ck] = endnames
 	cfg.nextClientId++
 	return ck
@@ -251,7 +253,7 @@ func (cfg *config) StartServer(gi int, i int) {
 			cfg.net.Connect(name, servername)
 			cfg.net.Enable(name, true)
 			return end
-		})
+		}, cfg.mylog)
 
 	kvsvc := labrpc.MakeService(gg.servers[i])
 	rfsvc := labrpc.MakeService(gg.servers[i].rf)
@@ -279,7 +281,7 @@ func (cfg *config) StartCtrlerserver(i int) {
 
 	p := raft.MakePersister()
 
-	cfg.ctrlerservers[i] = shardctrler.StartServer(ends, i, p)
+	cfg.ctrlerservers[i] = shardctrler.StartServer(ends, i, p, cfg.mylog)
 
 	msvc := labrpc.MakeService(cfg.ctrlerservers[i])
 	rfsvc := labrpc.MakeService(cfg.ctrlerservers[i].Raft())
@@ -299,7 +301,7 @@ func (cfg *config) shardclerk() *shardctrler.Clerk {
 		cfg.net.Enable(name, true)
 	}
 
-	return shardctrler.MakeClerk(ends)
+	return shardctrler.MakeClerk(ends, cfg.mylog)
 }
 
 // tell the shardctrler that a group is joining.
@@ -335,7 +337,7 @@ func (cfg *config) leavem(gis []int) {
 
 var ncpu_once sync.Once
 
-func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config {
+func make_config(t *testing.T, n int, unreliable bool, maxraftstate int, mylog *raft.Mylog) *config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
@@ -348,6 +350,8 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 	cfg.maxraftstate = maxraftstate
 	cfg.net = labrpc.MakeNetwork()
 	cfg.start = time.Now()
+
+	cfg.mylog = mylog
 
 	// controler
 	cfg.nctrlers = 3

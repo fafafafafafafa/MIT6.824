@@ -13,4 +13,5 @@ src/raft/log.txt
 src/kvraft/logs3A
 src/kvraft/logs3B
 src/shardctrler/logs4A
+src/shardkv/logs4B
 

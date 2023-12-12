@@ -13,7 +13,8 @@ import "crypto/rand"
 import "math/big"
 import "6.824/shardctrler"
 import "time"
-
+import "6.824/raft"
+import "sync/atomic"
 //
 // which shard is a key in?
 // please use this function,
@@ -40,6 +41,10 @@ type Clerk struct {
 	config   shardctrler.Config
 	make_end func(string) *labrpc.ClientEnd
 	// You will have to modify this struct.
+	mylog *raft.Mylog
+	clientId int64
+	seqId int64
+
 }
 
 //
@@ -51,11 +56,18 @@ type Clerk struct {
 // Config.Groups[gid][i] into a labrpc.ClientEnd on which you can
 // send RPCs.
 //
-func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.ClientEnd) *Clerk {
+func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.ClientEnd, mylog *raft.Mylog) *Clerk {
 	ck := new(Clerk)
-	ck.sm = shardctrler.MakeClerk(ctrlers)
+	ck.sm = shardctrler.MakeClerk(ctrlers, mylog)
 	ck.make_end = make_end
 	// You'll have to add code here.
+	ck.clientId = nrand()
+	ck.seqId = 0
+
+	ck.mylog = mylog
+
+	ck.config = ck.sm.Query(-1)
+
 	return ck
 }
 
@@ -69,6 +81,10 @@ func (ck *Clerk) Get(key string) string {
 	args := GetArgs{}
 	args.Key = key
 
+	args.ClientId = ck.clientId
+	args.SeqId = atomic.AddInt64(&ck.seqId, 1)
+	ck.mylog.DFprintf("***ck.Get: args: %+v\n", args)
+
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
@@ -79,10 +95,20 @@ func (ck *Clerk) Get(key string) string {
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
+					ck.mylog.DFprintf("***ck.Get: finish\n args: %+v,\n get reply: %+v\n", args, reply)
+
 					return reply.Value
 				}
 				if ok && (reply.Err == ErrWrongGroup) {
+					ck.mylog.DFprintf("***ck.Get: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
 					break
+				}
+				
+				if ok && (reply.Err == ErrNoKey){
+					// returns "" if the key does not exist.
+					ck.mylog.DFprintf("***ck.Get: ErrNoKey, args: %+v\n", args)
+
+					return ""
 				}
 				// ... not ok, or ErrWrongLeader
 			}
@@ -92,7 +118,7 @@ func (ck *Clerk) Get(key string) string {
 		ck.config = ck.sm.Query(-1)
 	}
 
-	return ""
+	// return ""
 }
 
 //
@@ -105,6 +131,9 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	args.Value = value
 	args.Op = op
 
+	args.ClientId = ck.clientId
+	args.SeqId = atomic.AddInt64(&ck.seqId, 1)
+	ck.mylog.DFprintf("***ck.PutAppend: args: %+v\n", args)
 
 	for {
 		shard := key2shard(key)
@@ -115,9 +144,13 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
 				if ok && reply.Err == OK {
+					ck.mylog.DFprintf("***ck.PutAppend: finish\n args: %+v,\n get reply: %+v\n", args, reply)
+
 					return
 				}
 				if ok && reply.Err == ErrWrongGroup {
+					ck.mylog.DFprintf("***ck.Get: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
+
 					break
 				}
 				// ... not ok, or ErrWrongLeader

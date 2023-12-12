@@ -10,6 +10,17 @@ import "sync/atomic"
 import "sync"
 import "math/rand"
 import "io/ioutil"
+import "flag"
+import "os"
+import "6.824/raft"
+import "log"
+
+func DPrintf(format string, a ...interface{}) (n int, err error) {
+	if true {
+		log.Printf(format, a...)
+	}
+	return
+}
 
 const linearizabilityCheckTimeout = 1 * time.Second
 
@@ -24,12 +35,50 @@ func check(t *testing.T, ck *Clerk, key string, value string) {
 // test static 2-way sharding, without shard movement.
 //
 func TestStaticShards(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestStaticShards"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		StaticShards(t, &mylog)
+		w.Close()
+	}
+
+}
+func StaticShards(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: static shards ...\n")
 
-	cfg := make_config(t, 3, false, -1)
+	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
 
-	ck := cfg.makeClient()
+	ck := cfg.makeClient() // make two shardctrler.Clerk : ck.sm, cfg.mck  .  why?
 
 	cfg.join(0)
 	cfg.join(1)
@@ -95,9 +144,48 @@ func TestStaticShards(t *testing.T) {
 }
 
 func TestJoinLeave(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestJoinLeave"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		JoinLeave(t, &mylog)
+		w.Close()
+	}
+
+}
+
+func JoinLeave(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: join then leave ...\n")
 
-	cfg := make_config(t, 3, false, -1)
+	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -146,11 +234,49 @@ func TestJoinLeave(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestSnapshot(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestSnapshot"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Snapshot(t, &mylog)
+		w.Close()
+	}
+
+}
+
+func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: snapshots, join, and leave ...\n")
 
-	cfg := make_config(t, 3, false, 1000)
+	cfg := make_config(t, 3, false, 1000, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -214,11 +340,48 @@ func TestSnapshot(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestMissChange(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestMissChange"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		MissChange(t, &mylog)
+		w.Close()
+	}
+
+}
+func MissChange(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: servers miss configuration changes...\n")
 
-	cfg := make_config(t, 3, false, 1000)
+	cfg := make_config(t, 3, false, 1000, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -300,11 +463,48 @@ func TestMissChange(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestConcurrent1(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestConcurrent1"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Concurrent1(t, &mylog)
+		w.Close()
+	}
+
+}
+func Concurrent1(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: concurrent puts and configuration changes...\n")
 
-	cfg := make_config(t, 3, false, 100)
+	cfg := make_config(t, 3, false, 100, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -383,9 +583,47 @@ func TestConcurrent1(t *testing.T) {
 // group might need to fetch shard contents.
 //
 func TestConcurrent2(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestConcurrent2"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Concurrent2(t, &mylog)
+		w.Close()
+	}
+
+}
+func Concurrent2(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: more concurrent puts and configuration changes...\n")
 
-	cfg := make_config(t, 3, false, -1)
+	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -452,11 +690,48 @@ func TestConcurrent2(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestConcurrent3(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestConcurrent3"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Concurrent3(t, &mylog)
+		w.Close()
+	}
+
+}
+func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: concurrent configuration change and restart...\n")
 
-	cfg := make_config(t, 3, false, 300)
+	cfg := make_config(t, 3, false, 300, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -520,11 +795,48 @@ func TestConcurrent3(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestUnreliable1(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestUnreliable1"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Unreliable1(t, &mylog)
+		w.Close()
+	}
+
+}
+func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 1...\n")
 
-	cfg := make_config(t, 3, true, 100)
+	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -562,11 +874,48 @@ func TestUnreliable1(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestUnreliable2(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestUnreliable2"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Unreliable2(t, &mylog)
+		w.Close()
+	}
+
+}
+func Unreliable2(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 2...\n")
 
-	cfg := make_config(t, 3, true, 100)
+	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -625,11 +974,48 @@ func TestUnreliable2(t *testing.T) {
 
 	fmt.Printf("  ... Passed\n")
 }
-
 func TestUnreliable3(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestUnreliable3"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Unreliable3(t, &mylog)
+		w.Close()
+	}
+
+}
+func Unreliable3(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 3...\n")
 
-	cfg := make_config(t, 3, true, 100)
+	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
 
 	begin := time.Now()
@@ -736,10 +1122,48 @@ func TestUnreliable3(t *testing.T) {
 // shards for which they are no longer responsible.
 //
 func TestChallenge1Delete(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestChallenge1Delete"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Challenge1Delete(t, &mylog)
+		w.Close()
+	}
+
+}
+func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: shard deletion (challenge 1) ...\n")
 
 	// "1" means force snapshot after every log entry.
-	cfg := make_config(t, 3, false, 1)
+	cfg := make_config(t, 3, false, 1, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -822,9 +1246,47 @@ func TestChallenge1Delete(t *testing.T) {
 // while the config change is underway
 //
 func TestChallenge2Unaffected(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestChallenge2Unaffected"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Challenge2Unaffected(t, &mylog)
+		w.Close()
+	}
+
+}
+func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unaffected shard access (challenge 2) ...\n")
 
-	cfg := make_config(t, 3, true, 100)
+	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
@@ -892,9 +1354,47 @@ func TestChallenge2Unaffected(t *testing.T) {
 // has not yet completed.
 //
 func TestChallenge2Partial(t *testing.T) {
+	argList := flag.Args()
+	
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestChallenge2Partial"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		Challenge2Partial(t, &mylog)
+		w.Close()
+	}
+
+}
+func Challenge2Partial(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: partial migration shard access (challenge 2) ...\n")
 
-	cfg := make_config(t, 3, true, 100)
+	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
