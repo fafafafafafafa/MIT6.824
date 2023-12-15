@@ -74,6 +74,7 @@ type config struct {
 func (cfg *config) checkTimeout() {
 	// enforce a two minute real-time limit on each test
 	if !cfg.t.Failed() && time.Since(cfg.start) > 120*time.Second {
+		cfg.mylog.DFprintf("test took longer than 120 seconds\n")
 		cfg.t.Fatal("test took longer than 120 seconds")
 	}
 }
@@ -96,10 +97,14 @@ func (cfg *config) checklogs() {
 			raft := cfg.groups[gi].saved[i].RaftStateSize()
 			snap := len(cfg.groups[gi].saved[i].ReadSnapshot())
 			if cfg.maxraftstate >= 0 && raft > 8*cfg.maxraftstate {
+				cfg.mylog.DFprintf("persister.RaftStateSize() %v, but maxraftstate %v\n",
+				raft, cfg.maxraftstate)
+
 				cfg.t.Fatalf("persister.RaftStateSize() %v, but maxraftstate %v",
 					raft, cfg.maxraftstate)
 			}
 			if cfg.maxraftstate < 0 && snap > 0 {
+				cfg.mylog.DFprintf("maxraftstate is -1, but snapshot is non-empty!\n")
 				cfg.t.Fatalf("maxraftstate is -1, but snapshot is non-empty!")
 			}
 		}
@@ -177,6 +182,7 @@ func (cfg *config) ShutdownServer(gi int, i int) {
 	// the possibility of the server returning a
 	// positive reply to an Append but persisting
 	// the result in the superseded Persister.
+	cfg.mylog.DFprintf("%v is delete\n", cfg.servername(gg.gid, i))
 	cfg.net.DeleteServer(cfg.servername(gg.gid, i))
 
 	// a fresh persister, in case old instance
@@ -340,6 +346,7 @@ var ncpu_once sync.Once
 func make_config(t *testing.T, n int, unreliable bool, maxraftstate int, mylog *raft.Mylog) *config {
 	ncpu_once.Do(func() {
 		if runtime.NumCPU() < 2 {
+			
 			fmt.Printf("warning: only one CPU, which may conceal locking bugs\n")
 		}
 		rand.Seed(makeSeed())

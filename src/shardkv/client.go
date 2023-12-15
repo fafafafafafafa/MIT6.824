@@ -80,7 +80,7 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 func (ck *Clerk) Get(key string) string {
 	args := GetArgs{}
 	args.Key = key
-
+	args.Op = "Get"
 	args.ClientId = ck.clientId
 	args.SeqId = atomic.AddInt64(&ck.seqId, 1)
 	ck.mylog.DFprintf("***ck.Get: args: %+v\n", args)
@@ -89,9 +89,13 @@ func (ck *Clerk) Get(key string) string {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
+			ck.mylog.DFprintf("***ck.Get: to servers(%v), args: %+v\n", servers, args)
+
 			// try each server for the shard.
 			for si := 0; si < len(servers); si++ {
 				srv := ck.make_end(servers[si])
+				ck.mylog.DFprintf("***ck.Get: get srv(%+v), args: %+v\n", srv, args)
+
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
@@ -104,12 +108,12 @@ func (ck *Clerk) Get(key string) string {
 					break
 				}
 				
-				if ok && (reply.Err == ErrNoKey){
-					// returns "" if the key does not exist.
-					ck.mylog.DFprintf("***ck.Get: ErrNoKey, args: %+v\n", args)
+				// if ok && (reply.Err == ErrNoKey){
+				// 	// returns "" if the key does not exist.
+				// 	ck.mylog.DFprintf("***ck.Get: ErrNoKey, args: %+v\n", args)
 
-					return ""
-				}
+				// 	return ""
+				// }
 				// ... not ok, or ErrWrongLeader
 			}
 		}

@@ -24,9 +24,10 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 
 const linearizabilityCheckTimeout = 1 * time.Second
 
-func check(t *testing.T, ck *Clerk, key string, value string) {
+func check(t *testing.T, ck *Clerk, key string, value string, mylog *raft.Mylog) {
 	v := ck.Get(key)
 	if v != value {
+		mylog.DFprintf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
 		t.Fatalf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
 	}
 }
@@ -74,6 +75,7 @@ func TestStaticShards(t *testing.T) {
 }
 func StaticShards(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: static shards ...\n")
+	mylog.DFprintf("Test: static shards ...\n")
 
 	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
@@ -92,7 +94,7 @@ func StaticShards(t *testing.T, mylog *raft.Mylog) {
 		ck.Put(ka[i], va[i])
 	}
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	// make sure that the data really is sharded by
@@ -121,6 +123,7 @@ func StaticShards(t *testing.T, mylog *raft.Mylog) {
 		select {
 		case err := <-ch:
 			if err != "" {
+				mylog.DFprintf(err)
 				t.Fatal(err)
 			}
 			ndone += 1
@@ -131,16 +134,18 @@ func StaticShards(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	if ndone != 5 {
+		mylog.DFprintf("expected 5 completions with one shard dead; got %v\n", ndone)
 		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
 	}
 
 	// bring the crashed shard/group back to life.
 	cfg.StartGroup(1)
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 }
 
 func TestJoinLeave(t *testing.T) {
@@ -184,12 +189,12 @@ func TestJoinLeave(t *testing.T) {
 
 func JoinLeave(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: join then leave ...\n")
-
+	mylog.DFprintf("Test: join then leave ...\n")
 	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
-
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -201,22 +206,24 @@ func JoinLeave(t *testing.T, mylog *raft.Mylog) {
 		ck.Put(ka[i], va[i])
 	}
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(5)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
 
+	cfg.mylog.DFprintf("*-----------leave 0------------\n")
 	cfg.leave(0)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(5)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -226,13 +233,16 @@ func JoinLeave(t *testing.T, mylog *raft.Mylog) {
 	time.Sleep(1 * time.Second)
 
 	cfg.checklogs()
+
+	cfg.mylog.DFprintf("*-----------ShutdownGroup 0------------\n")
 	cfg.ShutdownGroup(0)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
 }
 func TestSnapshot(t *testing.T) {
 	argList := flag.Args()
@@ -275,6 +285,7 @@ func TestSnapshot(t *testing.T) {
 
 func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: snapshots, join, and leave ...\n")
+	mylog.DFprintf("Test: snapshots, join, and leave ...\n")
 
 	cfg := make_config(t, 3, false, 1000, mylog)
 	defer cfg.cleanup()
@@ -292,7 +303,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 		ck.Put(ka[i], va[i])
 	}
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	cfg.join(1)
@@ -300,7 +311,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	cfg.leave(0)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -310,7 +321,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	cfg.join(0)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -319,7 +330,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	time.Sleep(1 * time.Second)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	time.Sleep(1 * time.Second)
@@ -335,10 +346,12 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	cfg.StartGroup(2)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 func TestMissChange(t *testing.T) {
 	argList := flag.Args()
@@ -380,6 +393,7 @@ func TestMissChange(t *testing.T) {
 }
 func MissChange(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: servers miss configuration changes...\n")
+	mylog.DFprintf("Test: servers miss configuration changes...\n")
 
 	cfg := make_config(t, 3, false, 1000, mylog)
 	defer cfg.cleanup()
@@ -397,7 +411,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		ck.Put(ka[i], va[i])
 	}
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	cfg.join(1)
@@ -411,7 +425,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 	cfg.leave(0)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -420,7 +434,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 	cfg.join(1)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -431,7 +445,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 	cfg.StartServer(2, 0)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -447,7 +461,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 	cfg.leave(2)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -458,10 +472,12 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 	cfg.StartServer(2, 1)
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 func TestConcurrent1(t *testing.T) {
 	argList := flag.Args()
@@ -503,6 +519,7 @@ func TestConcurrent1(t *testing.T) {
 }
 func Concurrent1(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: concurrent puts and configuration changes...\n")
+	mylog.DFprintf("Test: concurrent puts and configuration changes...\n")
 
 	cfg := make_config(t, 3, false, 100, mylog)
 	defer cfg.cleanup()
@@ -572,10 +589,12 @@ func Concurrent1(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 
 //
@@ -622,6 +641,7 @@ func TestConcurrent2(t *testing.T) {
 }
 func Concurrent2(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: more concurrent puts and configuration changes...\n")
+	mylog.DFprintf("Test: more concurrent puts and configuration changes...\n")
 
 	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
@@ -685,10 +705,12 @@ func Concurrent2(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 func TestConcurrent3(t *testing.T) {
 	argList := flag.Args()
@@ -730,6 +752,7 @@ func TestConcurrent3(t *testing.T) {
 }
 func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: concurrent configuration change and restart...\n")
+	mylog.DFprintf("Test: concurrent configuration change and restart...\n")
 
 	cfg := make_config(t, 3, false, 300, mylog)
 	defer cfg.cleanup()
@@ -790,10 +813,12 @@ func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 func TestUnreliable1(t *testing.T) {
 	argList := flag.Args()
@@ -835,6 +860,7 @@ func TestUnreliable1(t *testing.T) {
 }
 func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 1...\n")
+	mylog.DFprintf("Test: unreliable 1...\n")
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -858,7 +884,7 @@ func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 
 	for ii := 0; ii < n*2; ii++ {
 		i := ii % n
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 		x := randstring(5)
 		ck.Append(ka[i], x)
 		va[i] += x
@@ -869,10 +895,12 @@ func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 
 	for ii := 0; ii < n*2; ii++ {
 		i := ii % n
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 func TestUnreliable2(t *testing.T) {
 	argList := flag.Args()
@@ -914,6 +942,7 @@ func TestUnreliable2(t *testing.T) {
 }
 func Unreliable2(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 2...\n")
+	mylog.DFprintf("Test: unreliable 2...\n")
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -969,10 +998,12 @@ func Unreliable2(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 func TestUnreliable3(t *testing.T) {
 	argList := flag.Args()
@@ -1014,6 +1045,7 @@ func TestUnreliable3(t *testing.T) {
 }
 func Unreliable3(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 3...\n")
+	mylog.DFprintf("Test: unreliable 3...\n")
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -1100,21 +1132,30 @@ func Unreliable3(t *testing.T, mylog *raft.Mylog) {
 	if res == porcupine.Illegal {
 		file, err := ioutil.TempFile("", "*.html")
 		if err != nil {
-			fmt.Printf("info: failed to create temp file for visualization")
+			fmt.Printf("info: failed to create temp file for visualization\n")
+			mylog.DFprintf("info: failed to create temp file for visualization\n")
+
 		} else {
 			err = porcupine.Visualize(models.KvModel, info, file)
 			if err != nil {
 				fmt.Printf("info: failed to write history visualization to %s\n", file.Name())
+				mylog.DFprintf("info: failed to write history visualization to %s\n", file.Name())
+
 			} else {
 				fmt.Printf("info: wrote history visualization to %s\n", file.Name())
+				mylog.DFprintf("info: wrote history visualization to %s\n", file.Name())
+
 			}
 		}
+		mylog.DFprintf("history is not linearizable\n")
 		t.Fatal("history is not linearizable")
 	} else if res == porcupine.Unknown {
 		fmt.Println("info: linearizability check timed out, assuming history is ok")
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 
 //
@@ -1161,6 +1202,7 @@ func TestChallenge1Delete(t *testing.T) {
 }
 func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: shard deletion (challenge 1) ...\n")
+	mylog.DFprintf("Test: shard deletion (challenge 1) ...\n")
 
 	// "1" means force snapshot after every log entry.
 	cfg := make_config(t, 3, false, 1, mylog)
@@ -1180,7 +1222,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 		ck.Put(ka[i], va[i])
 	}
 	for i := 0; i < 3; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	for iters := 0; iters < 2; iters++ {
@@ -1189,14 +1231,14 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 		cfg.join(2)
 		time.Sleep(3 * time.Second)
 		for i := 0; i < 3; i++ {
-			check(t, ck, ka[i], va[i])
+			check(t, ck, ka[i], va[i], mylog)
 		}
 		cfg.leave(1)
 		cfg.join(0)
 		cfg.leave(2)
 		time.Sleep(3 * time.Second)
 		for i := 0; i < 3; i++ {
-			check(t, ck, ka[i], va[i])
+			check(t, ck, ka[i], va[i], mylog)
 		}
 	}
 
@@ -1204,15 +1246,15 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	cfg.join(2)
 	time.Sleep(1 * time.Second)
 	for i := 0; i < 3; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 	time.Sleep(1 * time.Second)
 	for i := 0; i < 3; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 	time.Sleep(1 * time.Second)
 	for i := 0; i < 3; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	total := 0
@@ -1230,14 +1272,17 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	// plus slop.
 	expected := 3 * (((n - 3) * 1000) + 2*3*1000 + 6000)
 	if total > expected {
+		mylog.DFprintf("snapshot + persisted Raft state are too big: %v > %v\n", total, expected)
 		t.Fatalf("snapshot + persisted Raft state are too big: %v > %v\n", total, expected)
 	}
 
 	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i])
+		check(t, ck, ka[i], va[i], mylog)
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 
 //
@@ -1285,6 +1330,7 @@ func TestChallenge2Unaffected(t *testing.T) {
 }
 func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unaffected shard access (challenge 2) ...\n")
+	mylog.DFprintf("Test: unaffected shard access (challenge 2) ...\n")
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -1339,13 +1385,15 @@ func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	for i := 0; i < n; i++ {
 		shard := int(ka[i][0]) % 10
 		if owned[shard] {
-			check(t, ck, ka[i], va[i])
+			check(t, ck, ka[i], va[i], mylog)
 			ck.Put(ka[i], va[i]+"-1")
-			check(t, ck, ka[i], va[i]+"-1")
+			check(t, ck, ka[i], va[i]+"-1", mylog)
 		}
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }
 
 //
@@ -1393,6 +1441,7 @@ func TestChallenge2Partial(t *testing.T) {
 }
 func Challenge2Partial(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: partial migration shard access (challenge 2) ...\n")
+	mylog.DFprintf("Test: partial migration shard access (challenge 2) ...\n")
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -1438,11 +1487,13 @@ func Challenge2Partial(t *testing.T, mylog *raft.Mylog) {
 	for i := 0; i < n; i++ {
 		shard := key2shard(ka[i])
 		if owned[shard] {
-			check(t, ck, ka[i], va[i])
+			check(t, ck, ka[i], va[i], mylog)
 			ck.Put(ka[i], va[i]+"-2")
-			check(t, ck, ka[i], va[i]+"-2")
+			check(t, ck, ka[i], va[i]+"-2", mylog)
 		}
 	}
 
 	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+
 }

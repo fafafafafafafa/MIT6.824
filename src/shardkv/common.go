@@ -37,6 +37,8 @@ type PutAppendReply struct {
 
 type GetArgs struct {
 	Key string
+	Op    string // "Get"
+
 	// You'll have to add definitions here.
 	ClientId int64
 	SeqId int64
@@ -46,3 +48,17 @@ type GetReply struct {
 	Err   Err
 	Value string
 }
+
+type MoveShardDataArgs struct{
+	// Method	string // "get" or "send"
+	ConfigNum 	int	
+	Shard		int	// which shard want get
+}
+
+type MoveShardDataReply struct{
+	Err			Err
+	ShardData	map[string]string
+	ConfigNum	int
+}
+
+

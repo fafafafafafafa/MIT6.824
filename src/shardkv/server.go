@@ -9,16 +9,23 @@ import "bytes"
 import "sync/atomic"
 // import "log"
 import "time"
+import "6.824/shardctrler"
 
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
-	Method string //  "Put", "Append" 
+	Method string //  "Put", "Append", "Update"
 	ClientId int64// 全局标识，初始化时随机生成，用于标识客户端
 	SeqId int64 // 最新的序列码，随着请求自增，用于排除 重复和过期的请求
 	Key string
 	Value string
+
+	Config  shardctrler.Config
+	ShardData	map[string]string
+	ConfigNum	int
+
+
 }
 
 type ShardKV struct {
@@ -37,18 +44,32 @@ type ShardKV struct {
 	clientId2seqId	map[int64]int64  //
 	agreeChs 		map[int]chan Op  // 从applyCh接收信息，再通过agreeChs发送
 	stopCh 			chan struct{}
-	mylog 			*raft.Mylog
+
+	config 			shardctrler.Config
+	lastConfig		shardctrler.Config
+	configNum		int
+
+	mck				*shardctrler.Clerk	
+
+	moveInShards	map[int]int	// shard -> group
+	moveOutShards	map[int]int	// shard -> group
+
+	mylog 			*raft.Mylog		
 }
 
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
 	op := Op{
+		Method: args.Op,
 		ClientId: args.ClientId,
 		SeqId: args.SeqId,
 		Key: args.Key,
 	}
+	// if key that the server isn't responsible for
+	
 	index, _, isLeader := kv.rf.Start(op)
+
 	if isLeader{
 		ch := kv.getAgreeChs(index)
 		var opMsg Op
@@ -144,6 +165,8 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *ShardKV) Kill() {
 	kv.rf.Kill()
 	// Your code here, if desired.
+	atomic.StoreInt32(&kv.dead, 1)
+	close(kv.stopCh)
 }
 
 func (kv *ShardKV) killed() bool {
@@ -182,6 +205,74 @@ func (kv *ShardKV) getAgreeChs(index int) chan Op{
 	return ch
 }
 
+func (kv *ShardKV) doPut(opMsg Op){
+	curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+	kv.mylog.DFprintf("***kv.doPut: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+	if !ok || opMsg.SeqId > curSeqId{
+		kv.mylog.DFprintf("***kv.doPut: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
+		kv.dataset[opMsg.Key] = opMsg.Value
+
+		// update clientId2seqId
+		kv.mylog.DFprintf("***kv.doPut: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+		
+		kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+	}
+}
+
+func (kv *ShardKV) doAppend(opMsg Op){
+	curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
+	kv.mylog.DFprintf("***kv.doAppend: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+	if !ok || opMsg.SeqId > curSeqId{
+		kv.mylog.DFprintf("***kv.doAppend: Append, kvserver: %v, key: %v, value(%v)=\n (past)%v+(add)%v\n", 
+							kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
+		kv.dataset[opMsg.Key] += opMsg.Value
+
+		// update clientId2seqId
+		kv.mylog.DFprintf("***kv.doAppend: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+		
+		kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+	}
+}
+
+func (kv *ShardKV) doUpdate(opMsg Op){
+	if opMsg.Config.Num > kv.configNum {
+		kv.lastConfig = kv.config
+		kv.config = opMsg.Config
+		moveInShards := make(map[int]int)
+		moveOutShards := make(map[int]int)
+		for i := 0; i < shardctrler.NShards; i++{
+			if kv.lastConfig.Shards[i] == kv.gid && kv.config.Shards[i] != kv.gid{ 
+				// need move out
+				moveOutShards[i] = kv.config.Shards[i]
+			}
+			if kv.lastConfig.Shards[i] != kv.gid && kv.config.Shards[i] == kv.gid{ 
+				// need move in
+				moveInShards[i] = kv.lastConfig.Shards[i]
+			}
+		}
+		kv.moveOutShards = moveOutShards
+		kv.moveInShards = moveInShards
+
+		kv.mylog.DFprintf("***kv.doUpdate: kvserver: %v,\n lastConfig: %+v,\n config: %+v,\n moveInShards: %+v\n", kv.me, 
+		kv.lastConfig, kv.config, moveInShards)
+
+	}
+}
+func (kv *ShardKV) doMoveShard(opMsg Op){
+	if opMsg.ConfigNum != kv.config.Num{
+		kv.mylog.DFprintf("***kv.doMoveShard: kvserver: %v, opMsg.ConfigNum(%v) - kv.config.Num(%v)\n", kv.me, opMsg.ConfigNum, kv.config.Num)
+		return 
+	}
+	kv.mylog.DFprintf("***kv.doMoveShard: kvserver: %v, ConfigNum: %v,\n kv.dataset: %+v\n ShardData: %+v\n", 
+	kv.me, opMsg.ConfigNum, kv.dataset, opMsg.ShardData)
+
+	for key, value := range opMsg.ShardData{
+		kv.dataset[key] = value
+
+	}
+	kv.mylog.DFprintf("***kv.doMoveShard: kvserver: %v,\n kv.dataset: %+v", kv.me, kv.dataset)
+
+}
 func (kv *ShardKV) waitApply(){
 	// 额外开一个线程，接受applyCh
 	// 根据index向相应的chan发送信号
@@ -191,7 +282,7 @@ func (kv *ShardKV) waitApply(){
 		select{
 		case msg := <- kv.applyCh:
 			// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
-			kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, Msg: %+v\n", kv.me, msg)
+			kv.mylog.DFprintf("***kv.waitApply: kvserver: %v, Msg: %+v\n", kv.me, msg)
 			if msg.SnapshotValid{
 				// kv.mu.Lock()
 				// if kv.rf.CondInstallSnapshot(msg.SnapshotTerm,
@@ -220,26 +311,20 @@ func (kv *ShardKV) waitApply(){
 				if msg.Command != nil{
 					kv.mu.Lock()
 					var opMsg Op = msg.Command.(Op)
-					kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
-					curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-					kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
-					if !ok || opMsg.SeqId > curSeqId{
-						// only handle new request
-						switch opMsg.Method{
-						case "Put":
-							kv.mylog.DFprintf("*kv.waitApply: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
-							kv.dataset[opMsg.Key] = opMsg.Value
-						case "Append":
-							kv.mylog.DFprintf("*kv.waitApply: Append, kvserver: %v, key: %v, value(%v)=\n (past)%v+(add)%v\n", 
-							kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
-							kv.dataset[opMsg.Key] += opMsg.Value
-						}
-						// update clientId2seqId
-						kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
-		
-						kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
-						
+					kv.mylog.DFprintf("***kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
+					
+					switch opMsg.Method{
+					case "Put":
+						kv.doPut(opMsg)
+					case "Append":
+						kv.doAppend(opMsg)
+					case "Update":
+						kv.doUpdate(opMsg)
+					case "MoveShard":
+						kv.doMoveShard(opMsg)
 					}
+
+		
 					lastApplied = msg.CommandIndex
 
 					if (msg.CommandIndex+1) % 10 == 0{
@@ -271,9 +356,127 @@ func (kv *ShardKV) waitApply(){
 
  
 	}
-	kv.mylog.DFprintf("*waitApply(): end, kvserver: %v\n", kv.me)
+	kv.mylog.DFprintf("***waitApply(): end, kvserver: %v\n", kv.me)
 	// close(kv.applyCh)
 	
+}
+
+func (kv *ShardKV) updateConfig(){
+	for kv.killed() == false{
+		if _, isleader := kv.rf.GetState(); isleader{
+			config := kv.mck.Query(-1)		
+			kv.mylog.DFprintf("***updateConfig():kvserver: %v, get config: %v\n", kv.me, config)
+			kv.mu.Lock()
+			if config.Num > kv.configNum{
+				kv.mylog.DFprintf("***updateConfig(): kvserver: %v, kv.configNum: %v, send new config: %+v\n", kv.me, kv.configNum, config)
+
+				kv.mu.Unlock()
+				op := Op{
+					Method: "Update",
+					Config: config,
+				}
+				index, _, isLeader := kv.rf.Start(op)
+
+				if isLeader{
+					ch := kv.getAgreeChs(index)
+					select{
+					case <- ch:
+						close(ch)
+					case <- time.After(500*time.Millisecond): // 500ms
+						// leader change
+					}
+				}
+			}else{
+				kv.mu.Unlock()
+			}
+	
+		}
+		time.Sleep(50*time.Millisecond) //100 ms
+	}
+}
+
+func (kv *ShardKV) shardMove(){
+	wg := &sync.WaitGroup{}
+	for kv.killed() == false{
+		if _, isleader := kv.rf.GetState(); isleader{
+			// if shard should be moved
+			kv.mu.Lock()
+			kv.mylog.DFprintf("***shardMove():kvserver: %v, kv.moveInShards: %+v\n", kv.me, kv.moveInShards)
+			for s, g := range kv.moveInShards{
+				wg.Add(1)
+				go kv.callMoveShardData(s, g, wg)
+			}
+			kv.mu.Unlock()
+		}
+		wg.Wait()
+		time.Sleep(50*time.Millisecond) //100 ms
+	}
+}
+
+func (kv *ShardKV) callMoveShardData(shard int, gid int, wg *sync.WaitGroup){
+	defer wg.Done()
+
+	args := MoveShardDataArgs{}
+	args.ConfigNum = kv.config.Num
+	args.Shard = shard
+	if servers, ok := kv.lastConfig.Groups[gid]; ok {
+		for{
+			for si := 0; si < len(servers); si++ {
+				srv := kv.make_end(servers[si])
+				var reply MoveShardDataReply
+				ok := srv.Call("ShardKV.MoveShardData", &args, &reply)
+				if ok && reply.Err == OK{
+					kv.mylog.DFprintf("***callMoveShardData():kvserver: %v, reply: %+v\n", kv.me, reply)
+	
+					op := Op{
+						Method: "MoveShard",
+						ShardData: reply.ShardData,
+						ConfigNum: reply.ConfigNum,
+					}
+					index, _, isLeader := kv.rf.Start(op)
+	
+					if isLeader{
+						ch := kv.getAgreeChs(index)
+						select{
+						// case opMsg = <- ch:
+						case <-ch:
+							close(ch)
+							
+						case <- time.After(500*time.Millisecond): // 500ms
+						
+						}	
+					}
+					return
+				}
+				if ok && (reply.Err == ErrWrongGroup) {
+					// ck.mylog.DFprintf("***ck.Get: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
+					return 
+				}
+
+		}
+
+		}
+	}
+}
+func (kv *ShardKV) MoveShardData(args *MoveShardDataArgs, reply *MoveShardDataReply){
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	if _, isleader := kv.rf.GetState(); !isleader{
+		reply.Err = ErrWrongLeader
+		return 
+	}
+	kv.mylog.DFprintf("***MoveShardData():kvserver: %v, kv.configNum: %v, args: %+v\n", kv.me, kv.configNum, args)
+
+	if args.ConfigNum == kv.configNum {
+		
+		for key, value := range kv.dataset{
+			if key2shard(key) == args.Shard{
+				reply.ShardData[key] = value
+			}
+		}
+		reply.ConfigNum = kv.configNum
+		reply.Err = OK
+	}
 }
 
 //
@@ -330,10 +533,15 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	kv.clientId2seqId = make(map[int64]int64)
 	kv.agreeChs = make(map[int]chan Op)
 	kv.stopCh = make(chan struct{})
+	
+	kv.mck = shardctrler.MakeClerk(ctrlers, mylog)
+
 
 	kv.readDataset(persister.ReadSnapshot())
 
 	go kv.waitApply()
+	go kv.updateConfig()
+	go kv.shardMove()
 	kv.mylog.DFprintf("***StartKVServer(): me: %v\n", me)
 	return kv
 }
