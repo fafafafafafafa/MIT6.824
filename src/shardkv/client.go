@@ -99,6 +99,8 @@ func (ck *Clerk) Get(key string) string {
 
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
+				ck.mylog.DFprintf("***ck.Get: ok:%v,\n args: %+v,\n get reply: %+v\n", ok, args, reply)
+
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
 					ck.mylog.DFprintf("***ck.Get: finish from group: %v\n args: %+v,\n get reply: %+v\n", gid, args, reply)
 			
@@ -106,6 +108,16 @@ func (ck *Clerk) Get(key string) string {
 				}
 				if ok && (reply.Err == ErrWrongGroup) {
 					ck.mylog.DFprintf("***ck.Get: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
+					time.Sleep(100 * time.Millisecond)
+					// ask controler for the latest configuration.
+					ck.config = ck.sm.Query(-1)
+					break
+				}
+				if ok && (reply.Err == ErrNotReady){
+					// wait and retry
+					ck.mylog.DFprintf("***ck.Get: ErrNotReady. group: %v, args: %+v\n", gid, args)
+
+					time.Sleep(10 * time.Millisecond)
 					break
 				}
 				
@@ -117,10 +129,12 @@ func (ck *Clerk) Get(key string) string {
 				// }
 				// ... not ok, or ErrWrongLeader
 			}
+		}else{
+			time.Sleep(100 * time.Millisecond)
+			// ask controler for the latest configuration.
+			ck.config = ck.sm.Query(-1)
 		}
-		time.Sleep(100 * time.Millisecond)
-		// ask controler for the latest configuration.
-		ck.config = ck.sm.Query(-1)
+
  		
  
 	}
@@ -154,22 +168,36 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				srv := ck.make_end(servers[si])
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
+				ck.mylog.DFprintf("***ck.PutAppend: ok:%v,\n args: %+v,\n get reply: %+v\n", ok, args, reply)
+
 				if ok && reply.Err == OK {
 					ck.mylog.DFprintf("***ck.PutAppend: finish\n args: %+v,\n get reply: %+v\n", args, reply)
-
 					return
 				}
 				if ok && reply.Err == ErrWrongGroup {
-					ck.mylog.DFprintf("***ck.Get: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
+					ck.mylog.DFprintf("***ck.PutAppend: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
+					time.Sleep(100 * time.Millisecond)
+					// ask controler for the latest configuration.
+					ck.config = ck.sm.Query(-1)
+					break
+				}
 
+				if ok && (reply.Err == ErrNotReady){
+					// wait and retry
+					ck.mylog.DFprintf("***ck.PutAppend: ErrNotReady. group: %v, args: %+v\n", gid, args)
+
+					time.Sleep(10 * time.Millisecond)
 					break
 				}
 				// ... not ok, or ErrWrongLeader
 			}
+		}else{
+			time.Sleep(100 * time.Millisecond)
+			// ask controler for the latest configuration.
+			ck.config = ck.sm.Query(-1)
 		}
-		time.Sleep(100 * time.Millisecond)
-		// ask controler for the latest configuration.
-		ck.config = ck.sm.Query(-1)
+		
+		
 	}
 }
 

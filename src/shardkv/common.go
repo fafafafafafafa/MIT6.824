@@ -8,7 +8,7 @@ package shardkv
 //
 // You will have to modify these definitions.
 //
-
+type Err string
 const (
 	OK             = "OK"
 	ErrNoKey       = "ErrNoKey"
@@ -16,8 +16,14 @@ const (
 	ErrWrongLeader = "ErrWrongLeader"
 	ErrNotReady	   = "ErrNotReady"
 )
+// for shard state
+type ShardState string
+const (
+	SERVED	= "SERVED"
+	NOTSERVED	= "NOTSERVED"
+	NOTREADY	= "NOTREADY"
+)
 
-type Err string
 
 // Put or Append
 type PutAppendArgs struct {
