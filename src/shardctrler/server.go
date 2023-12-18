@@ -249,16 +249,16 @@ func (sc *ShardCtrler) rebalance(config *Config){
 		}
 
 		// move
-		sc.mylog.DFprintf("**rebalance: sc: %v, move before: maxGidShardIdx[%v] %v, minGidShardIdx[%v] %v\n", 
-		sc.me, maxGid, gid2shardIdx[maxGid], minGid, gid2shardIdx[minGid])
+		sc.mylog.DFprintf("**rebalance: sc: %v, move before: config.Shards: %v, maxGidShardIdx[%v] %v, minGidShardIdx[%v] %v\n", 
+		sc.me, config.Shards, maxGid, gid2shardIdx[maxGid], minGid, gid2shardIdx[minGid])
 
 		i := gid2shardIdx[maxGid][0]
 		gid2shardIdx[minGid] = append(gid2shardIdx[minGid], i)
 		config.Shards[i] = minGid
 		gid2shardIdx[maxGid] = gid2shardIdx[maxGid][1:]
 
-		sc.mylog.DFprintf("**rebalance: sc: %v, move after: maxGidShardIdx[%v] %v, minGidShardIdx[%v] %v\n", 
-		sc.me, maxGid, gid2shardIdx[maxGid], minGid, gid2shardIdx[minGid])
+		sc.mylog.DFprintf("**rebalance: sc: %v, move after: config.Shards: %v, maxGidShardIdx[%v] %v, minGidShardIdx[%v] %v\n", 
+		sc.me, config.Shards, maxGid, gid2shardIdx[maxGid], minGid, gid2shardIdx[minGid])
 
 	}
 	

@@ -27,6 +27,10 @@ type Op struct {
 
 
 }
+type ApplyReply struct{
+	Err Err
+	Op	Op
+}
 
 type ShardKV struct {
 	mu           sync.Mutex
@@ -42,12 +46,11 @@ type ShardKV struct {
 	dead		 	int32
 	dataset			map[string]string // key-value，存储的数据库
 	clientId2seqId	map[int64]int64  //
-	agreeChs 		map[int]chan Op  // 从applyCh接收信息，再通过agreeChs发送
+	agreeChs 		map[int]chan ApplyReply  // 从applyCh接收信息，再通过agreeChs发送
 	stopCh 			chan struct{}
 
 	config 			shardctrler.Config
 	lastConfig		shardctrler.Config
-	configNum		int
 
 	mck				*shardctrler.Clerk	
 
@@ -59,6 +62,19 @@ type ShardKV struct {
 
 
 func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
+	// if key that the server isn't responsible for
+	kv.mu.Lock()
+	if !kv.isKeyServed(args.Key){
+		kv.mylog.DFprintf("***kv.Get, key: %v is not in the group: %v, config.Shards: %v\n", args.Key, kv.gid, kv.config.Shards)
+
+		kv.mu.Unlock()
+		reply.Err = ErrWrongGroup
+		return
+	}else{
+		kv.mu.Unlock()
+	}
+	
+
 	// Your code here.
 	op := Op{
 		Method: args.Op,
@@ -66,35 +82,29 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 		SeqId: args.SeqId,
 		Key: args.Key,
 	}
-	// if key that the server isn't responsible for
 	
 	index, _, isLeader := kv.rf.Start(op)
 
 	if isLeader{
 		ch := kv.getAgreeChs(index)
-		var opMsg Op
+		var applyMsg ApplyReply
 		select{
-		case opMsg = <- ch:
+		case applyMsg = <- ch:
 			kv.mu.Lock()
-			// curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-			// kv.mylog.DFprintf("*kv.Get: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
-			// if !ok || opMsg.SeqId >= curSeqId{
-				// only handle new request
-				v, ok := kv.dataset[opMsg.Key]
+			if !kv.isKeyServed(applyMsg.Op.Key){
+				kv.mylog.DFprintf("***kv.Get-, %v is not in the group: %v, config.Shards: %v\n", applyMsg.Op.Key, kv.gid, kv.config.Shards)
+				reply.Err = ErrWrongGroup
+			}else{
+				v, ok := kv.dataset[applyMsg.Op.Key]
 				if !ok{
 					reply.Err = ErrNoKey
 				}else{
 					reply.Err = OK
 					reply.Value = v 
-					kv.mylog.DFprintf("*kv.Get: kvserver: %v, get value: %v\n", kv.me, v)
-
+					kv.mylog.DFprintf("***kv.Get: group: %v, kvserver: %v, get value: %v\n", kv.gid, kv.me, v)
+	
 				}
-				// update clientId2seqId
-				// kv.mylog.DFprintf("*kv.Get: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
-
-				// kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
-				
-			// }
+			}
 			kv.mu.Unlock()
 			close(ch)
 			
@@ -106,7 +116,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 		// 	reply.Err = ErrWrongLeader
 		// }
 	}else{
-		kv.mylog.DFprintf("*kv.Get: is not leader, kvserver: %v\n", kv.me)
+		kv.mylog.DFprintf("***kv.Get: is not leader, group: %v, kvserver: %v\n", kv.gid, kv.me)
 
 		reply.Err = ErrWrongLeader
 	}
@@ -114,6 +124,18 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 
 func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// Your code here.
+	// if key that the server isn't responsible for
+	kv.mu.Lock()
+	if !kv.isKeyServed(args.Key){
+		kv.mylog.DFprintf("***kv.PutAppend, key: %v is not in the group: %v, config.Shards: %v\n", args.Key, kv.gid, kv.config.Shards)
+
+		kv.mu.Unlock()
+		reply.Err = ErrWrongGroup
+		return
+	}else{
+		kv.mu.Unlock()
+	}
+
 	op := Op{
 		Method: args.Op,
 		ClientId: args.ClientId,
@@ -124,22 +146,21 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	index, _, isLeader := kv.rf.Start(op)
 	if isLeader{
 		ch := kv.getAgreeChs(index)
-		kv.mylog.DFprintf("*kv.PutAppend: kvserver: %v, get agreeChs[%v]\n", kv.me, index)
-		// var opMsg Op
+		kv.mylog.DFprintf("***kv.PutAppend: group: %v, kvserver: %v, get agreeChs[%v]\n", kv.gid, kv.me, index)
+		var applyMsg ApplyReply
 		select{
-		// case opMsg = <- ch:
-		case <-ch:
-			reply.Err = OK
+		case applyMsg = <- ch:
+			reply.Err = applyMsg.Err
 			close(ch)
 			
 		case <- time.After(500*time.Millisecond): // 500ms
-			kv.mylog.DFprintf("*kv.PutAppend: kvserver: %v, get opMsg timeout\n", kv.me)
+			kv.mylog.DFprintf("***kv.PutAppend: group: %v, kvserver: %v, get opMsg timeout\n", kv.gid, kv.me)
 
 			reply.Err = ErrWrongLeader
 		}
 
 		// if !isSameOp(op, opMsg){
-		// 	kv.mylog.DFprintf("*kv.PutAppend: different, kvserver: %v, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
+		// 	kv.mylog.DFprintf("*kv.PutAppend: different, group: %v, kvserver: %v, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
 		// 	kv.me,
 		// 	op.ClientId, opMsg.ClientId, 
 		// 	op.SeqId, opMsg.SeqId,
@@ -186,56 +207,83 @@ func (kv *ShardKV) readDataset(data []byte){
 	var clientId2seqId map[int64]int64
 	if d.Decode(&dataset) != nil ||
 	   d.Decode(&clientId2seqId) != nil{
-		kv.mylog.DFprintf("*kv.readDataset: kvserver: %v, decode failed! \n", kv.me)
+		kv.mylog.DFprintf("***kv.readDataset: group: %v, kvserver: %v, decode failed! \n", kv.gid, kv.me)
 	}else{
 		kv.dataset = dataset
 		kv.clientId2seqId = clientId2seqId
-		kv.mylog.DFprintf("readDataset: load kvserver: %v,\n dataset: %v,\n clientId2seqId: %v \n", kv.me, kv.dataset, kv.clientId2seqId)
+		kv.mylog.DFprintf("***readDataset: load group: %v, kvserver: %v,\n dataset: %v,\n clientId2seqId: %v \n",
+		kv.gid, kv.me, kv.dataset, kv.clientId2seqId)
 	}
 
 }
-func (kv *ShardKV) getAgreeChs(index int) chan Op{
+func (kv *ShardKV) getAgreeChs(index int) chan ApplyReply{
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 	ch, ok := kv.agreeChs[index]
 	if !ok{
-		ch = make(chan Op, 1)
+		ch = make(chan ApplyReply, 1)
 		kv.agreeChs[index] = ch
 	}
 	return ch
 }
+func (kv *ShardKV) isKeyServed(key string)bool{
+	shard := key2shard(key)
+	g := kv.config.Shards[shard]
+	kv.mylog.DFprintf("***kv.isKeyServed: key:%v, shard: %v, gid(%v)-kv.gid(%v)\n", key, shard, g, kv.gid)
+	return g == kv.gid
+}
 
-func (kv *ShardKV) doPut(opMsg Op){
+
+func (kv *ShardKV) doPut(opMsg Op) Err{
+
 	curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-	kv.mylog.DFprintf("***kv.doPut: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+	kv.mylog.DFprintf("***kv.doPut: group: %v, kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n",
+	kv.gid, kv.me, ok, opMsg.SeqId, curSeqId)
 	if !ok || opMsg.SeqId > curSeqId{
-		kv.mylog.DFprintf("***kv.doPut: Put, kvserver: %v, key: %v, value: %v\n", kv.me, opMsg.Key, opMsg.Value)
+		if !kv.isKeyServed(opMsg.Key){
+			
+			kv.mylog.DFprintf("***kv.doPut, key: %v is not in the group: %v, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
+			return ErrWrongGroup
+		}
+		kv.mylog.DFprintf("***kv.doPut: Put, group: %v, kvserver: %v, key: %v, value: %v\n", kv.gid, kv.me, opMsg.Key, opMsg.Value)
 		kv.dataset[opMsg.Key] = opMsg.Value
 
 		// update clientId2seqId
-		kv.mylog.DFprintf("***kv.doPut: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+		kv.mylog.DFprintf("***kv.doPut: group: %v, kvserver: %v, ClientId: %v, SeqId from %v to %v\n", 
+		kv.gid, kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 		
 		kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
+		
 	}
+	return OK
 }
 
-func (kv *ShardKV) doAppend(opMsg Op){
+func (kv *ShardKV) doAppend(opMsg Op)Err{
 	curSeqId, ok := kv.clientId2seqId[opMsg.ClientId]
-	kv.mylog.DFprintf("***kv.doAppend: kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.me, ok, opMsg.SeqId, curSeqId)
+	kv.mylog.DFprintf("***kv.doAppend: group: %v, kvserver: %v, ok: %v, opMsg.SeqId(%v)-curSeqId(%v)\n", kv.gid, kv.me, ok, opMsg.SeqId, curSeqId)
 	if !ok || opMsg.SeqId > curSeqId{
-		kv.mylog.DFprintf("***kv.doAppend: Append, kvserver: %v, key: %v, value(%v)=\n (past)%v+(add)%v\n", 
-							kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
+		if !kv.isKeyServed(opMsg.Key){
+
+			kv.mylog.DFprintf("***kv.doAppend, key: %v is not in the group: %v, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
+			return ErrWrongGroup
+		}
+		kv.mylog.DFprintf("***kv.doAppend: Append, group: %v, kvserver: %v, key: %v, value(%v)=\n (past)%v+(add)%v\n", 
+		kv.gid, kv.me, opMsg.Key, kv.dataset[opMsg.Key]+opMsg.Value, kv.dataset[opMsg.Key], opMsg.Value)
+
 		kv.dataset[opMsg.Key] += opMsg.Value
 
 		// update clientId2seqId
-		kv.mylog.DFprintf("***kv.doAppend: kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
+		kv.mylog.DFprintf("***kv.doAppend: group: %v, kvserver: %v, ClientId: %v, SeqId from %v to %v\n", kv.gid, kv.me, opMsg.ClientId, curSeqId, opMsg.SeqId)
 		
 		kv.clientId2seqId[opMsg.ClientId] = opMsg.SeqId
 	}
+
+
+	return OK
 }
 
 func (kv *ShardKV) doUpdate(opMsg Op){
-	if opMsg.Config.Num > kv.configNum {
+	if opMsg.Config.Num == kv.config.Num+1 {
 		kv.lastConfig = kv.config
 		kv.config = opMsg.Config
 		moveInShards := make(map[int]int)
@@ -253,24 +301,24 @@ func (kv *ShardKV) doUpdate(opMsg Op){
 		kv.moveOutShards = moveOutShards
 		kv.moveInShards = moveInShards
 
-		kv.mylog.DFprintf("***kv.doUpdate: kvserver: %v,\n lastConfig: %+v,\n config: %+v,\n moveInShards: %+v\n", kv.me, 
+		kv.mylog.DFprintf("***kv.doUpdate: group: %v, kvserver: %v,\n lastConfig: %+v,\n config: %+v,\n moveInShards: %+v\n", kv.gid, kv.me, 
 		kv.lastConfig, kv.config, moveInShards)
 
 	}
 }
 func (kv *ShardKV) doMoveShard(opMsg Op){
 	if opMsg.ConfigNum != kv.config.Num{
-		kv.mylog.DFprintf("***kv.doMoveShard: kvserver: %v, opMsg.ConfigNum(%v) - kv.config.Num(%v)\n", kv.me, opMsg.ConfigNum, kv.config.Num)
+		kv.mylog.DFprintf("***kv.doMoveShard: group: %v, kvserver: %v, opMsg.ConfigNum(%v) - kv.config.Num(%v)\n", kv.gid, kv.me, opMsg.ConfigNum, kv.config.Num)
 		return 
 	}
-	kv.mylog.DFprintf("***kv.doMoveShard: kvserver: %v, ConfigNum: %v,\n kv.dataset: %+v\n ShardData: %+v\n", 
-	kv.me, opMsg.ConfigNum, kv.dataset, opMsg.ShardData)
+	kv.mylog.DFprintf("***kv.doMoveShard: group: %v, kvserver: %v, ConfigNum: %v,\n kv.dataset: %+v\n ShardData: %+v\n", 
+	kv.gid, kv.me, opMsg.ConfigNum, kv.dataset, opMsg.ShardData)
 
 	for key, value := range opMsg.ShardData{
 		kv.dataset[key] = value
 
 	}
-	kv.mylog.DFprintf("***kv.doMoveShard: kvserver: %v,\n kv.dataset: %+v", kv.me, kv.dataset)
+	kv.mylog.DFprintf("***kv.doMoveShard: group: %v, kvserver: %v,\n kv.dataset: %+v", kv.gid, kv.me, kv.dataset)
 
 }
 func (kv *ShardKV) waitApply(){
@@ -281,8 +329,8 @@ func (kv *ShardKV) waitApply(){
 	for kv.killed()==false{
 		select{
 		case msg := <- kv.applyCh:
-			// kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
-			kv.mylog.DFprintf("***kv.waitApply: kvserver: %v, Msg: %+v\n", kv.me, msg)
+			// kv.mylog.DFprintf("*kv.waitApply: group: %v, kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
+			kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, Msg: %+v\n", kv.gid, kv.me, msg)
 			if msg.SnapshotValid{
 				// kv.mu.Lock()
 				// if kv.rf.CondInstallSnapshot(msg.SnapshotTerm,
@@ -296,13 +344,13 @@ func (kv *ShardKV) waitApply(){
 
 				// 	if d.Decode(&dataset) != nil ||
 				// 	   d.Decode(&clientId2seqId) != nil{
-				// 		kv.mylog.DFprintf("*kv.waitApply: kvserver: %v, decode error\n", kv.me)
-				// 		log.Fatalf("*kv.waitApply: kvserver: %v, decode error\n", kv.me)
+				// 		kv.mylog.DFprintf("*kv.waitApply: group: %v, kvserver: %v, decode error\n", kv.me)
+				// 		log.Fatalf("*kv.waitApply: group: %v, kvserver: %v, decode error\n", kv.me)
 				// 	}
 				// 	kv.dataset = dataset
 				// 	kv.clientId2seqId = clientId2seqId
 				// 	lastApplied = msg.SnapshotIndex
-				// 	kv.mylog.DFprintf("*kv.waitApply: CondInstallSnapshot, kvserver: %v,\n kv.dataset: %v,\n kv.clientId2seqId: %v,\n lastApplied: %v \n",
+				// 	kv.mylog.DFprintf("*kv.waitApply: CondInstallSnapshot, group: %v, kvserver: %v,\n kv.dataset: %v,\n kv.clientId2seqId: %v,\n lastApplied: %v \n",
 				// 	kv.me, kv.dataset, kv.clientId2seqId, lastApplied)
 				// }
 				// kv.mu.Unlock()
@@ -311,19 +359,23 @@ func (kv *ShardKV) waitApply(){
 				if msg.Command != nil{
 					kv.mu.Lock()
 					var opMsg Op = msg.Command.(Op)
-					kv.mylog.DFprintf("***kv.waitApply: kvserver: %v, get opMsg: %+v\n", kv.me, opMsg)
-					
+					kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, get opMsg: %+v\n", kv.gid, kv.me, opMsg)
+					var reply = ApplyReply{Op: opMsg}
 					switch opMsg.Method{
+					case "Get":
+						reply.Err = ""
 					case "Put":
-						kv.doPut(opMsg)
+						reply.Err = kv.doPut(opMsg)
 					case "Append":
-						kv.doAppend(opMsg)
+						reply.Err = kv.doAppend(opMsg)
 					case "Update":
+						reply.Err = ""
 						kv.doUpdate(opMsg)
 					case "MoveShard":
+						reply.Err = ""
 						kv.doMoveShard(opMsg)
+					
 					}
-
 		
 					lastApplied = msg.CommandIndex
 
@@ -337,14 +389,14 @@ func (kv *ShardKV) waitApply(){
 						// kv.rf.Snapshot(msg.CommandIndex, w.Bytes())
 						// // kv.mu.Lock()
 
-						// kv.mylog.DFprintf("*kv.waitApply: Snapshot, kvserver: %v,\n kv.dataset: %v,\n kv.clientId2seqId: %v,\n lastApplied: %v \n",
+						// kv.mylog.DFprintf("*kv.waitApply: Snapshot, group: %v, kvserver: %v,\n kv.dataset: %v,\n kv.clientId2seqId: %v,\n lastApplied: %v \n",
 						// kv.me, kv.dataset, kv.clientId2seqId, lastApplied)
 
 					}
 					kv.mu.Unlock()
 					if _, isLeader := kv.rf.GetState(); isLeader {
 						ch := kv.getAgreeChs(msg.CommandIndex)
-						ch <- opMsg
+						ch <- reply
 					}
 					
 	
@@ -364,11 +416,12 @@ func (kv *ShardKV) waitApply(){
 func (kv *ShardKV) updateConfig(){
 	for kv.killed() == false{
 		if _, isleader := kv.rf.GetState(); isleader{
-			config := kv.mck.Query(-1)		
-			kv.mylog.DFprintf("***updateConfig():kvserver: %v, get config: %v\n", kv.me, config)
 			kv.mu.Lock()
-			if config.Num > kv.configNum{
-				kv.mylog.DFprintf("***updateConfig(): kvserver: %v, kv.configNum: %v, send new config: %+v\n", kv.me, kv.configNum, config)
+			config := kv.mck.Query(kv.config.Num+1)		
+			kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, get config: %+v\n kv.config :%+v\n", kv.gid, kv.me, config, kv.config)
+
+			if config.Num == kv.config.Num+1{
+				kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, kv.configNum: %v, send new config: %+v\n", kv.gid, kv.me, kv.config.Num, config)
 
 				kv.mu.Unlock()
 				op := Op{
@@ -401,7 +454,7 @@ func (kv *ShardKV) shardMove(){
 		if _, isleader := kv.rf.GetState(); isleader{
 			// if shard should be moved
 			kv.mu.Lock()
-			kv.mylog.DFprintf("***shardMove():kvserver: %v, kv.moveInShards: %+v\n", kv.me, kv.moveInShards)
+			kv.mylog.DFprintf("***shardMove():group: %v, kvserver: %v, kv.moveInShards: %+v\n", kv.gid, kv.me, kv.moveInShards)
 			for s, g := range kv.moveInShards{
 				wg.Add(1)
 				go kv.callMoveShardData(s, g, wg)
@@ -415,18 +468,19 @@ func (kv *ShardKV) shardMove(){
 
 func (kv *ShardKV) callMoveShardData(shard int, gid int, wg *sync.WaitGroup){
 	defer wg.Done()
-
+	kv.mu.Lock()
 	args := MoveShardDataArgs{}
 	args.ConfigNum = kv.config.Num
 	args.Shard = shard
 	if servers, ok := kv.lastConfig.Groups[gid]; ok {
+		kv.mu.Unlock()
 		for{
 			for si := 0; si < len(servers); si++ {
 				srv := kv.make_end(servers[si])
-				var reply MoveShardDataReply
+				reply := MoveShardDataReply{}
 				ok := srv.Call("ShardKV.MoveShardData", &args, &reply)
 				if ok && reply.Err == OK{
-					kv.mylog.DFprintf("***callMoveShardData():kvserver: %v, reply: %+v\n", kv.me, reply)
+					kv.mylog.DFprintf("***callMoveShardData():group: %v, kvserver: %v, reply: %+v\n", kv.gid, kv.me, reply)
 	
 					op := Op{
 						Method: "MoveShard",
@@ -448,14 +502,20 @@ func (kv *ShardKV) callMoveShardData(shard int, gid int, wg *sync.WaitGroup){
 					}
 					return
 				}
+				if ok && reply.Err == ErrNotReady{
+					time.Sleep(5*time.Millisecond)
+					break
+				}
 				if ok && (reply.Err == ErrWrongGroup) {
 					// ck.mylog.DFprintf("***ck.Get: ErrWrongGroup. not in group: %v, args: %+v\n", gid, args)
 					return 
 				}
 
-		}
+			}
 
 		}
+	}else{
+		kv.mu.Unlock()
 	}
 }
 func (kv *ShardKV) MoveShardData(args *MoveShardDataArgs, reply *MoveShardDataReply){
@@ -465,16 +525,20 @@ func (kv *ShardKV) MoveShardData(args *MoveShardDataArgs, reply *MoveShardDataRe
 		reply.Err = ErrWrongLeader
 		return 
 	}
-	kv.mylog.DFprintf("***MoveShardData():kvserver: %v, kv.configNum: %v, args: %+v\n", kv.me, kv.configNum, args)
-
-	if args.ConfigNum == kv.configNum {
-		
+	kv.mylog.DFprintf("***MoveShardData():group: %v, kvserver: %v, kv.configNum: %v, args: %+v\n", kv.gid, kv.me, kv.config.Num, args)
+	if args.ConfigNum > kv.config.Num{
+		reply.Err = ErrNotReady
+		return 
+	}
+	if args.ConfigNum == kv.config.Num {
+		shardData := make(map[string]string)
 		for key, value := range kv.dataset{
 			if key2shard(key) == args.Shard{
-				reply.ShardData[key] = value
+				shardData[key] = value
 			}
 		}
-		reply.ConfigNum = kv.configNum
+		reply.ShardData = shardData
+		reply.ConfigNum = kv.config.Num
 		reply.Err = OK
 	}
 }
@@ -531,7 +595,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 
 	kv.dataset = make(map[string]string)
 	kv.clientId2seqId = make(map[int64]int64)
-	kv.agreeChs = make(map[int]chan Op)
+	kv.agreeChs = make(map[int]chan ApplyReply)
 	kv.stopCh = make(chan struct{})
 	
 	kv.mck = shardctrler.MakeClerk(ctrlers, mylog)

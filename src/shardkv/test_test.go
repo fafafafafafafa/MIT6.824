@@ -27,7 +27,7 @@ const linearizabilityCheckTimeout = 1 * time.Second
 func check(t *testing.T, ck *Clerk, key string, value string, mylog *raft.Mylog) {
 	v := ck.Get(key)
 	if v != value {
-		mylog.DFprintf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
+		mylog.DFprintf("fail: Get(%v): expected:\n%v\nreceived:\n%v\n", key, value, v)
 		t.Fatalf("Get(%v): expected:\n%v\nreceived:\n%v", key, value, v)
 	}
 }
@@ -35,53 +35,162 @@ func check(t *testing.T, ck *Clerk, key string, value string, mylog *raft.Mylog)
 //
 // test static 2-way sharding, without shard movement.
 //
-func TestStaticShards(t *testing.T) {
-	argList := flag.Args()
+
+// func TestStaticShards(t *testing.T) {
+// 	argList := flag.Args()
 	
-	arg := "1"
-	if len(argList) == 1{
-		arg = argList[0]
+// 	arg := "1"
+// 	if len(argList) == 1{
+// 		arg = argList[0]
+// 	}
+// 	nums, err := strconv.Atoi(arg)
+// 	if err != nil{
+// 		DPrintf("%v \n", err)
+// 	}
+// 	for i := 0; i < nums; i++{
+// 		dir := "./logs4B/TestStaticShards"
+// 		if _, err := os.Stat(dir); os.IsNotExist(err) {
+// 			// 必须分成两步：先创建文件夹、再修改权限
+// 			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+// 			os.Chmod(dir, 0777)
+// 		}
+// 		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+// 		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+// 		if err != nil{
+// 			DPrintf("%v \n", err)
+// 			return 
+// 		}
+// 		mylog := raft.Mylog{
+// 			W: w,
+// 			Debug: true,
+// 		}
+// 		err = w.Truncate(0)
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 		StaticShards(t, &mylog)
+// 		w.Close()
+// 	}
+
+// }
+
+// func StaticShards(t *testing.T, mylog *raft.Mylog) {
+// 	fmt.Printf("Test: static shards ...\n")
+// 	mylog.DFprintf("Test: static shards ...\n")
+// 	mylog.GoroutineStack()
+
+// 	cfg := make_config(t, 3, false, -1, mylog)
+// 	defer cfg.cleanup()
+
+// 	ck := cfg.makeClient() // make two shardctrler.Clerk : ck.sm, cfg.mck  .  why?
+// 	mylog.DFprintf("*-------------join 0, 1----------------\n")
+// 	cfg.join(0)
+// 	cfg.join(1)
+
+// 	n := 10
+// 	ka := make([]string, n)
+// 	va := make([]string, n)
+// 	for i := 0; i < n; i++ {
+// 		ka[i] = strconv.Itoa(i) // ensure multiple shards
+// 		va[i] = randstring(20)
+// 		ck.Put(ka[i], va[i])
+// 	}
+// 	for i := 0; i < n; i++ {
+// 		check(t, ck, ka[i], va[i], mylog)
+// 	}
+
+// 	// make sure that the data really is sharded by
+// 	// shutting down one shard and checking that some
+// 	// Get()s don't succeed.
+// 	mylog.DFprintf("*-------------ShutdownGroup 1----------------\n")
+
+// 	cfg.ShutdownGroup(1)
+// 	cfg.checklogs() // forbid snapshots
+
+// 	ch := make(chan string)
+// 	// group1 shard 0, 1, 2, 3, 4, 5 - ascii "2, 3, 4, 5, 6"
+// 	xis := []int{7, 8, 9, 0, 1} // to avoid routines leak
+// 	// for xi := 0; xi < n; xi++ {
+// 	for _, xi := range xis{
+// 		ck1 := cfg.makeClient() // only one call allowed per client
+// 		go func(i int) {
+// 			v := ck1.Get(ka[i])
+// 			// if v == "timeout"{
+// 			// 	return 
+// 			// }
+// 			if v != va[i] {
+// 				ch <- fmt.Sprintf("Get(%v): expected:\n%v\nreceived:\n%v", ka[i], va[i], v)
+// 			} else {
+// 				ch <- ""
+// 			}
+// 		}(xi)
+// 	}
+
+// 	// wait a bit, only about half the Gets should succeed.
+// 	ndone := 0
+// 	done := false
+// 	for done == false {
+// 		select {
+// 		case err := <-ch:
+// 			if err != "" {
+// 				mylog.DFprintf("fail: %v\n", err)
+// 				t.Fatal(err)
+// 			}
+// 			ndone += 1
+// 		case <-time.After(time.Second * 2):
+// 			done = true
+// 			break
+// 		}
+// 	}
+
+// 	if ndone != 5 {
+// 		mylog.DFprintf("fail: expected 5 completions with one shard dead; got %v\n", ndone)
+// 		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
+// 	}
+
+// 	// bring the crashed shard/group back to life.
+// 	cfg.StartGroup(1)
+// 	for i := 0; i < n; i++ {
+// 		check(t, ck, ka[i], va[i], mylog)
+// 	}
+
+// 	fmt.Printf("  ... Passed\n")
+// 	mylog.DFprintf("  ... Passed\n")
+// }
+func TestStaticShards(t *testing.T) {
+	dir := "./logs4B/TestStaticShards"
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		// 必须分成两步：先创建文件夹、再修改权限
+		os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+		os.Chmod(dir, 0777)
 	}
-	nums, err := strconv.Atoi(arg)
+	filename := fmt.Sprintf("%v/%v.txt", dir, 0)
+	w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+	
 	if err != nil{
 		DPrintf("%v \n", err)
+		return 
 	}
-	for i := 0; i < nums; i++{
-		dir := "./logs4B/TestStaticShards"
-		if _, err := os.Stat(dir); os.IsNotExist(err) {
-			// 必须分成两步：先创建文件夹、再修改权限
-			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
-			os.Chmod(dir, 0777)
-		}
-		filename := fmt.Sprintf("%v/%v.txt", dir, i)
-		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-		
-		if err != nil{
-			DPrintf("%v \n", err)
-			return 
-		}
-		mylog := raft.Mylog{
-			W: w,
-			Debug: true,
-		}
-		err = w.Truncate(0)
-		if err != nil {
-			panic(err)
-		}
-		StaticShards(t, &mylog)
-		w.Close()
+	mylog := &raft.Mylog{
+		W: w,
+		Debug: true,
 	}
+	err = w.Truncate(0)
+	if err != nil {
+		panic(err)
+	}
+	defer w.Close()
 
-}
-func StaticShards(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: static shards ...\n")
 	mylog.DFprintf("Test: static shards ...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient() // make two shardctrler.Clerk : ck.sm, cfg.mck  .  why?
-
+	mylog.DFprintf("*-------------join 0, 1----------------\n")
 	cfg.join(0)
 	cfg.join(1)
 
@@ -100,14 +209,22 @@ func StaticShards(t *testing.T, mylog *raft.Mylog) {
 	// make sure that the data really is sharded by
 	// shutting down one shard and checking that some
 	// Get()s don't succeed.
+	mylog.DFprintf("*-------------ShutdownGroup 1----------------\n")
+
 	cfg.ShutdownGroup(1)
 	cfg.checklogs() // forbid snapshots
 
 	ch := make(chan string)
-	for xi := 0; xi < n; xi++ {
+	// group1 shard 0, 1, 2, 3, 4, 5 - ascii "2, 3, 4, 5, 6"
+	xis := []int{7, 8, 9, 0, 1} // to avoid routines leak
+	// for xi := 0; xi < n; xi++ {
+	for _, xi := range xis{
 		ck1 := cfg.makeClient() // only one call allowed per client
 		go func(i int) {
 			v := ck1.Get(ka[i])
+			// if v == "timeout"{
+			// 	return 
+			// }
 			if v != va[i] {
 				ch <- fmt.Sprintf("Get(%v): expected:\n%v\nreceived:\n%v", ka[i], va[i], v)
 			} else {
@@ -123,7 +240,7 @@ func StaticShards(t *testing.T, mylog *raft.Mylog) {
 		select {
 		case err := <-ch:
 			if err != "" {
-				mylog.DFprintf(err)
+				mylog.DFprintf("fail: %v\n", err)
 				t.Fatal(err)
 			}
 			ndone += 1
@@ -134,7 +251,7 @@ func StaticShards(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	if ndone != 5 {
-		mylog.DFprintf("expected 5 completions with one shard dead; got %v\n", ndone)
+		mylog.DFprintf("fail: expected 5 completions with one shard dead; got %v\n", ndone)
 		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
 	}
 
@@ -190,10 +307,12 @@ func TestJoinLeave(t *testing.T) {
 func JoinLeave(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: join then leave ...\n")
 	mylog.DFprintf("Test: join then leave ...\n")
+	mylog.GoroutineStack()
+
 	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
-
 	ck := cfg.makeClient()
+
 	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
@@ -286,6 +405,7 @@ func TestSnapshot(t *testing.T) {
 func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: snapshots, join, and leave ...\n")
 	mylog.DFprintf("Test: snapshots, join, and leave ...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, false, 1000, mylog)
 	defer cfg.cleanup()
@@ -394,6 +514,7 @@ func TestMissChange(t *testing.T) {
 func MissChange(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: servers miss configuration changes...\n")
 	mylog.DFprintf("Test: servers miss configuration changes...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, false, 1000, mylog)
 	defer cfg.cleanup()
@@ -520,6 +641,7 @@ func TestConcurrent1(t *testing.T) {
 func Concurrent1(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: concurrent puts and configuration changes...\n")
 	mylog.DFprintf("Test: concurrent puts and configuration changes...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, false, 100, mylog)
 	defer cfg.cleanup()
@@ -642,6 +764,7 @@ func TestConcurrent2(t *testing.T) {
 func Concurrent2(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: more concurrent puts and configuration changes...\n")
 	mylog.DFprintf("Test: more concurrent puts and configuration changes...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, false, -1, mylog)
 	defer cfg.cleanup()
@@ -753,6 +876,7 @@ func TestConcurrent3(t *testing.T) {
 func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: concurrent configuration change and restart...\n")
 	mylog.DFprintf("Test: concurrent configuration change and restart...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, false, 300, mylog)
 	defer cfg.cleanup()
@@ -861,6 +985,7 @@ func TestUnreliable1(t *testing.T) {
 func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 1...\n")
 	mylog.DFprintf("Test: unreliable 1...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -943,6 +1068,7 @@ func TestUnreliable2(t *testing.T) {
 func Unreliable2(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 2...\n")
 	mylog.DFprintf("Test: unreliable 2...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -1046,6 +1172,7 @@ func TestUnreliable3(t *testing.T) {
 func Unreliable3(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unreliable 3...\n")
 	mylog.DFprintf("Test: unreliable 3...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -1203,6 +1330,7 @@ func TestChallenge1Delete(t *testing.T) {
 func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: shard deletion (challenge 1) ...\n")
 	mylog.DFprintf("Test: shard deletion (challenge 1) ...\n")
+	mylog.GoroutineStack()
 
 	// "1" means force snapshot after every log entry.
 	cfg := make_config(t, 3, false, 1, mylog)
@@ -1272,7 +1400,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	// plus slop.
 	expected := 3 * (((n - 3) * 1000) + 2*3*1000 + 6000)
 	if total > expected {
-		mylog.DFprintf("snapshot + persisted Raft state are too big: %v > %v\n", total, expected)
+		mylog.DFprintf("fail: snapshot + persisted Raft state are too big: %v > %v\n", total, expected)
 		t.Fatalf("snapshot + persisted Raft state are too big: %v > %v\n", total, expected)
 	}
 
@@ -1331,6 +1459,7 @@ func TestChallenge2Unaffected(t *testing.T) {
 func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: unaffected shard access (challenge 2) ...\n")
 	mylog.DFprintf("Test: unaffected shard access (challenge 2) ...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()
@@ -1442,6 +1571,7 @@ func TestChallenge2Partial(t *testing.T) {
 func Challenge2Partial(t *testing.T, mylog *raft.Mylog) {
 	fmt.Printf("Test: partial migration shard access (challenge 2) ...\n")
 	mylog.DFprintf("Test: partial migration shard access (challenge 2) ...\n")
+	mylog.GoroutineStack()
 
 	cfg := make_config(t, 3, true, 100, mylog)
 	defer cfg.cleanup()

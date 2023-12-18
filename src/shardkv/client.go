@@ -84,10 +84,11 @@ func (ck *Clerk) Get(key string) string {
 	args.ClientId = ck.clientId
 	args.SeqId = atomic.AddInt64(&ck.seqId, 1)
 	ck.mylog.DFprintf("***ck.Get: args: %+v\n", args)
-
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
+		ck.mylog.DFprintf("***ck.Get: num: %v, config.Shards: %v, args: %+v\n", ck.config.Num, ck.config.Shards, args)
+
 		if servers, ok := ck.config.Groups[gid]; ok {
 			ck.mylog.DFprintf("***ck.Get: to servers(%v), args: %+v\n", servers, args)
 
@@ -99,8 +100,8 @@ func (ck *Clerk) Get(key string) string {
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-					ck.mylog.DFprintf("***ck.Get: finish\n args: %+v,\n get reply: %+v\n", args, reply)
-
+					ck.mylog.DFprintf("***ck.Get: finish from group: %v\n args: %+v,\n get reply: %+v\n", gid, args, reply)
+			
 					return reply.Value
 				}
 				if ok && (reply.Err == ErrWrongGroup) {
@@ -120,6 +121,8 @@ func (ck *Clerk) Get(key string) string {
 		time.Sleep(100 * time.Millisecond)
 		// ask controler for the latest configuration.
 		ck.config = ck.sm.Query(-1)
+ 		
+ 
 	}
 
 	// return ""
@@ -142,7 +145,11 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
+		ck.mylog.DFprintf("***ck.PutAppend: num: %v, config.Shards: %v, args: %+v\n", ck.config.Num, ck.config.Shards, args)
+
 		if servers, ok := ck.config.Groups[gid]; ok {
+			ck.mylog.DFprintf("***ck.PutAppend: to servers(%v), args: %+v\n", servers, args)
+
 			for si := 0; si < len(servers); si++ {
 				srv := ck.make_end(servers[si])
 				var reply PutAppendReply
