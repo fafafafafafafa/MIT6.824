@@ -411,7 +411,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
-
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 30
@@ -425,6 +425,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i], mylog)
 	}
+	cfg.mylog.DFprintf("*-----------join 1 2, leave 0------------\n")
 
 	cfg.join(1)
 	cfg.join(2)
@@ -437,6 +438,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 		va[i] += x
 	}
 
+	cfg.mylog.DFprintf("*-----------join 0, leave 1------------\n")
 	cfg.leave(1)
 	cfg.join(0)
 
@@ -456,6 +458,7 @@ func Snapshot(t *testing.T, mylog *raft.Mylog) {
 	time.Sleep(1 * time.Second)
 
 	cfg.checklogs()
+	cfg.mylog.DFprintf("*-----------shutdown and restart all------------\n")
 
 	cfg.ShutdownGroup(0)
 	cfg.ShutdownGroup(1)
