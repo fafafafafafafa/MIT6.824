@@ -65,6 +65,7 @@ type MoveShardDataArgs struct{
 type MoveShardDataReply struct{
 	Err			Err
 	ShardData	map[string]string
+	ClientId2seqId map[int64]int64
 	ConfigNum	int
 }
 

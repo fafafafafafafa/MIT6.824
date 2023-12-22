@@ -524,6 +524,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 
 	ck := cfg.makeClient()
 
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -538,12 +539,15 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		check(t, ck, ka[i], va[i], mylog)
 	}
 
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 
+	cfg.mylog.DFprintf("*-----------shutdown (0, 1) (1, 0) (2, 0)------------\n")
 	cfg.ShutdownServer(0, 0)
 	cfg.ShutdownServer(1, 0)
 	cfg.ShutdownServer(2, 0)
 
+	cfg.mylog.DFprintf("*-----------join 2, leave 1 0------------\n")
 	cfg.join(2)
 	cfg.leave(1)
 	cfg.leave(0)
@@ -555,6 +559,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		va[i] += x
 	}
 
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 
 	for i := 0; i < n; i++ {
@@ -563,7 +568,8 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-
+	
+	cfg.mylog.DFprintf("*-----------start (0, 1) (1, 0) (2, 0)------------\n")
 	cfg.StartServer(0, 0)
 	cfg.StartServer(1, 0)
 	cfg.StartServer(2, 0)
@@ -577,10 +583,12 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 
 	time.Sleep(2 * time.Second)
 
+	cfg.mylog.DFprintf("*-----------shutdown (0, 1) (1, 1) (2, 1)------------\n")
 	cfg.ShutdownServer(0, 1)
 	cfg.ShutdownServer(1, 1)
 	cfg.ShutdownServer(2, 1)
 
+	cfg.mylog.DFprintf("*-----------join 0, leave 2------------\n")
 	cfg.join(0)
 	cfg.leave(2)
 
@@ -590,6 +598,8 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
+
+	cfg.mylog.DFprintf("*-----------start (0, 1) (1, 1) (2, 1)------------\n")
 
 	cfg.StartServer(0, 1)
 	cfg.StartServer(1, 1)
@@ -650,7 +660,8 @@ func Concurrent1(t *testing.T, mylog *raft.Mylog) {
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
-
+	
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -681,29 +692,37 @@ func Concurrent1(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	time.Sleep(150 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 2------------\n")
 	cfg.join(2)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------leave 0, shutdown 0------------\n")
 	cfg.leave(0)
 
 	cfg.ShutdownGroup(0)
 	time.Sleep(100 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------shutdown 1------------\n")
 	cfg.ShutdownGroup(1)
 	time.Sleep(100 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------shutdown 2, leave 2------------\n")
 	cfg.ShutdownGroup(2)
 
 	cfg.leave(2)
 
 	time.Sleep(100 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------start 0 1 2------------\n")
 	cfg.StartGroup(0)
 	cfg.StartGroup(1)
 	cfg.StartGroup(2)
 
 	time.Sleep(100 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 0, leave 1------------\n")
 	cfg.join(0)
 	cfg.leave(1)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 
 	time.Sleep(1 * time.Second)
@@ -773,7 +792,7 @@ func Concurrent2(t *testing.T, mylog *raft.Mylog) {
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
-
+	cfg.mylog.DFprintf("*-----------join 1 0 2------------\n")
 	cfg.join(1)
 	cfg.join(0)
 	cfg.join(2)
@@ -805,21 +824,26 @@ func Concurrent2(t *testing.T, mylog *raft.Mylog) {
 		go ff(i, ck1)
 	}
 
+	cfg.mylog.DFprintf("*-----------leave 0 2------------\n")
 	cfg.leave(0)
 	cfg.leave(2)
 	time.Sleep(3000 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 0 2, leave 1------------\n")
 	cfg.join(0)
 	cfg.join(2)
 	cfg.leave(1)
 	time.Sleep(3000 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1, leave 0, 2------------\n")
 	cfg.join(1)
 	cfg.leave(0)
 	cfg.leave(2)
 	time.Sleep(3000 * time.Millisecond)
 
+	cfg.mylog.DFprintf("*-----------shutdown 1 2------------\n")
 	cfg.ShutdownGroup(1)
 	cfg.ShutdownGroup(2)
 	time.Sleep(1000 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------start 1 2------------\n")
 	cfg.StartGroup(1)
 	cfg.StartGroup(2)
 
@@ -886,6 +910,7 @@ func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 
 	ck := cfg.makeClient()
 
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -916,9 +941,11 @@ func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 
 	t0 := time.Now()
 	for time.Since(t0) < 12*time.Second {
+		cfg.mylog.DFprintf("*-----------join 2 1------------\n")
 		cfg.join(2)
 		cfg.join(1)
 		time.Sleep(time.Duration(rand.Int()%900) * time.Millisecond)
+		cfg.mylog.DFprintf("*-----------shutdown 0 1 2, start 0 1 2------------\n")
 		cfg.ShutdownGroup(0)
 		cfg.ShutdownGroup(1)
 		cfg.ShutdownGroup(2)
@@ -927,6 +954,7 @@ func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 		cfg.StartGroup(2)
 
 		time.Sleep(time.Duration(rand.Int()%900) * time.Millisecond)
+		cfg.mylog.DFprintf("*-----------leave 1 2------------\n")
 		cfg.leave(1)
 		cfg.leave(2)
 		time.Sleep(time.Duration(rand.Int()%900) * time.Millisecond)
@@ -935,6 +963,8 @@ func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 	time.Sleep(2 * time.Second)
 
 	atomic.StoreInt32(&done, 1)
+	cfg.mylog.DFprintf("*-----------check------------\n")
+
 	for i := 0; i < n; i++ {
 		<-ch
 	}
@@ -995,6 +1025,7 @@ func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 
 	ck := cfg.makeClient()
 
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -1006,6 +1037,7 @@ func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 		ck.Put(ka[i], va[i])
 	}
 
+	cfg.mylog.DFprintf("*-----------join 1 2, leave 0------------\n")
 	cfg.join(1)
 	cfg.join(2)
 	cfg.leave(0)
@@ -1018,6 +1050,7 @@ func Unreliable1(t *testing.T, mylog *raft.Mylog) {
 		va[i] += x
 	}
 
+	cfg.mylog.DFprintf("*-----------join 0, leave 1------------\n")
 	cfg.join(0)
 	cfg.leave(1)
 
@@ -1078,6 +1111,7 @@ func Unreliable2(t *testing.T, mylog *raft.Mylog) {
 
 	ck := cfg.makeClient()
 
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -1107,14 +1141,19 @@ func Unreliable2(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	time.Sleep(150 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 2------------\n")
 	cfg.join(2)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------leave 0------------\n")
 	cfg.leave(0)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------leave 1------------\n")
 	cfg.leave(1)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1 0------------\n")
 	cfg.join(1)
 	cfg.join(0)
 
@@ -1186,6 +1225,7 @@ func Unreliable3(t *testing.T, mylog *raft.Mylog) {
 
 	ck := cfg.makeClient()
 
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	n := 10
@@ -1239,14 +1279,19 @@ func Unreliable3(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	time.Sleep(150 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 2------------\n")
 	cfg.join(2)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------leave 0------------\n")
 	cfg.leave(0)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------leave 1------------\n")
 	cfg.leave(1)
 	time.Sleep(500 * time.Millisecond)
+	cfg.mylog.DFprintf("*-----------join 1 0------------\n")
 	cfg.join(1)
 	cfg.join(0)
 
@@ -1340,7 +1385,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	defer cfg.cleanup()
 
 	ck := cfg.makeClient()
-
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	// 30,000 bytes of total values.
@@ -1357,6 +1402,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	for iters := 0; iters < 2; iters++ {
+		cfg.mylog.DFprintf("*-----------join 1, leave 0, join 2------------\n")
 		cfg.join(1)
 		cfg.leave(0)
 		cfg.join(2)
@@ -1364,6 +1410,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 		for i := 0; i < 3; i++ {
 			check(t, ck, ka[i], va[i], mylog)
 		}
+		cfg.mylog.DFprintf("*-----------leave 1, join 0, leave 2------------\n")
 		cfg.leave(1)
 		cfg.join(0)
 		cfg.leave(2)
@@ -1372,7 +1419,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 			check(t, ck, ka[i], va[i], mylog)
 		}
 	}
-
+	cfg.mylog.DFprintf("*-----------join 1 2------------\n")
 	cfg.join(1)
 	cfg.join(2)
 	time.Sleep(1 * time.Second)
@@ -1470,6 +1517,7 @@ func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	ck := cfg.makeClient()
 
 	// JOIN 100
+	cfg.mylog.DFprintf("*-----------join 0------------\n")
 	cfg.join(0)
 
 	// Do a bunch of puts to keys in all shards
@@ -1483,6 +1531,7 @@ func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	// JOIN 101
+	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 
 	// QUERY to find shards now owned by 101
@@ -1504,10 +1553,12 @@ func Challenge2Unaffected(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	// KILL 100
+	cfg.mylog.DFprintf("*-----------shutdown 0------------\n")
 	cfg.ShutdownGroup(0)
 
 	// LEAVE 100
 	// 101 doesn't get a chance to migrate things previously owned by 100
+	cfg.mylog.DFprintf("*-----------leave 1------------\n")
 	cfg.leave(0)
 
 	// Wait to make sure clients see new config
@@ -1582,6 +1633,7 @@ func Challenge2Partial(t *testing.T, mylog *raft.Mylog) {
 	ck := cfg.makeClient()
 
 	// JOIN 100 + 101 + 102
+	cfg.mylog.DFprintf("*-----------join 0 1 2------------\n")
 	cfg.joinm([]int{0, 1, 2})
 
 	// Give the implementation some time to reconfigure
@@ -1605,11 +1657,13 @@ func Challenge2Partial(t *testing.T, mylog *raft.Mylog) {
 	}
 
 	// KILL 100
+	cfg.mylog.DFprintf("*-----------shutdown 0------------\n")
 	cfg.ShutdownGroup(0)
 
 	// LEAVE 100 + 102
 	// 101 can get old shards from 102, but not from 100. 101 should start
 	// serving shards that used to belong to 102 as soon as possible
+	cfg.mylog.DFprintf("*-----------leave 0 2------------\n")
 	cfg.leavem([]int{0, 2})
 
 	// Give the implementation some time to start reconfiguration
