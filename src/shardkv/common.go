@@ -19,9 +19,12 @@ const (
 // for shard state
 type ShardState string
 const (
-	SERVED	= "SERVED"
+	SERVED		= "SERVED"
 	NOTSERVED	= "NOTSERVED"
 	NOTREADY	= "NOTREADY"
+	READY		= "READY"
+	DEL			= "DEL"
+
 )
 
 
@@ -69,4 +72,13 @@ type MoveShardDataReply struct{
 	ConfigNum	int
 }
 
+type DeleteShardDataArgs struct{
+	
+	Shard		int 
+	ConfigNum	int
+}
 
+type DeleteShardDataReply struct{
+	Err			Err
+	ConfigNum	int
+}

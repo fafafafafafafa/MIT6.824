@@ -36,46 +36,152 @@ func check(t *testing.T, ck *Clerk, key string, value string, mylog *raft.Mylog)
 // test static 2-way sharding, without shard movement.
 //
 
-// func TestStaticShards(t *testing.T) {
-// 	argList := flag.Args()
+func TestStaticShards(t *testing.T) {
+	argList := flag.Args()
 	
-// 	arg := "1"
-// 	if len(argList) == 1{
-// 		arg = argList[0]
+	arg := "1"
+	if len(argList) == 1{
+		arg = argList[0]
+	}
+	nums, err := strconv.Atoi(arg)
+	if err != nil{
+		DPrintf("%v \n", err)
+	}
+	for i := 0; i < nums; i++{
+		dir := "./logs4B/TestStaticShards"
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			// 必须分成两步：先创建文件夹、再修改权限
+			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+			os.Chmod(dir, 0777)
+		}
+		filename := fmt.Sprintf("%v/%v.txt", dir, i)
+		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+		
+		if err != nil{
+			DPrintf("%v \n", err)
+			return 
+		}
+		mylog := raft.Mylog{
+			W: w,
+			Debug: true,
+		}
+		err = w.Truncate(0)
+		if err != nil {
+			panic(err)
+		}
+		StaticShards(t, &mylog)
+		w.Close()
+	}
+
+}
+
+func StaticShards(t *testing.T, mylog *raft.Mylog) {
+	fmt.Printf("Test: static shards ...\n")
+	mylog.DFprintf("Test: static shards ...\n")
+	mylog.GoroutineStack()
+
+	cfg := make_config(t, 3, false, -1, mylog)
+	defer cfg.cleanup()
+
+	ck := cfg.makeClient() // make two shardctrler.Clerk : ck.sm, cfg.mck  .  why?
+	mylog.DFprintf("*-------------join 0, 1----------------\n")
+	cfg.join(0)
+	cfg.join(1)
+
+	n := 10
+	ka := make([]string, n)
+	va := make([]string, n)
+	for i := 0; i < n; i++ {
+		ka[i] = strconv.Itoa(i) // ensure multiple shards
+		va[i] = randstring(20)
+		ck.Put(ka[i], va[i])
+	}
+	for i := 0; i < n; i++ {
+		check(t, ck, ka[i], va[i], mylog)
+	}
+
+	// make sure that the data really is sharded by
+	// shutting down one shard and checking that some
+	// Get()s don't succeed.
+	mylog.DFprintf("*-------------ShutdownGroup 1----------------\n")
+
+	cfg.ShutdownGroup(1)
+	cfg.checklogs() // forbid snapshots
+
+	ch := make(chan string)
+	// group1 shard 0, 1, 2, 3, 4, 5 - ascii "2, 3, 4, 5, 6"
+	// xis := []int{7, 8, 9, 0, 1} // to avoid routines leak
+	for xi := 0; xi < n; xi++ {
+	// for _, xi := range xis{
+		ck1 := cfg.makeClient() // only one call allowed per client
+		go func(i int) {
+			v := ck1.Get(ka[i])
+			// if v == "timeout"{
+			// 	return 
+			// }
+			if v != va[i] {
+				ch <- fmt.Sprintf("Get(%v): expected:\n%v\nreceived:\n%v", ka[i], va[i], v)
+			} else {
+				ch <- ""
+			}
+		}(xi)
+	}
+
+	// wait a bit, only about half the Gets should succeed.
+	ndone := 0
+	done := false
+	for done == false {
+		select {
+		case err := <-ch:
+			if err != "" {
+				mylog.DFprintf("fail: %v\n", err)
+				t.Fatal(err)
+			}
+			ndone += 1
+		case <-time.After(time.Second * 2):
+			done = true
+			break
+		}
+	}
+
+	if ndone != 5 {
+		mylog.DFprintf("fail: expected 5 completions with one shard dead; got %v\n", ndone)
+		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
+	}
+
+	// bring the crashed shard/group back to life.
+	cfg.StartGroup(1)
+	for i := 0; i < n; i++ {
+		check(t, ck, ka[i], va[i], mylog)
+	}
+
+	fmt.Printf("  ... Passed\n")
+	mylog.DFprintf("  ... Passed\n")
+}
+// func TestStaticShards(t *testing.T) {
+// 	dir := "./logs4B/TestStaticShards"
+// 	if _, err := os.Stat(dir); os.IsNotExist(err) {
+// 		// 必须分成两步：先创建文件夹、再修改权限
+// 		os.Mkdir(dir, 0777) //0777也可以os.ModePerm
+// 		os.Chmod(dir, 0777)
 // 	}
-// 	nums, err := strconv.Atoi(arg)
+// 	filename := fmt.Sprintf("%v/%v.txt", dir, 0)
+// 	w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+	
 // 	if err != nil{
 // 		DPrintf("%v \n", err)
+// 		return 
 // 	}
-// 	for i := 0; i < nums; i++{
-// 		dir := "./logs4B/TestStaticShards"
-// 		if _, err := os.Stat(dir); os.IsNotExist(err) {
-// 			// 必须分成两步：先创建文件夹、再修改权限
-// 			os.Mkdir(dir, 0777) //0777也可以os.ModePerm
-// 			os.Chmod(dir, 0777)
-// 		}
-// 		filename := fmt.Sprintf("%v/%v.txt", dir, i)
-// 		w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-		
-// 		if err != nil{
-// 			DPrintf("%v \n", err)
-// 			return 
-// 		}
-// 		mylog := raft.Mylog{
-// 			W: w,
-// 			Debug: true,
-// 		}
-// 		err = w.Truncate(0)
-// 		if err != nil {
-// 			panic(err)
-// 		}
-// 		StaticShards(t, &mylog)
-// 		w.Close()
+// 	mylog := &raft.Mylog{
+// 		W: w,
+// 		Debug: true,
 // 	}
+// 	err = w.Truncate(0)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	defer w.Close()
 
-// }
-
-// func StaticShards(t *testing.T, mylog *raft.Mylog) {
 // 	fmt.Printf("Test: static shards ...\n")
 // 	mylog.DFprintf("Test: static shards ...\n")
 // 	mylog.GoroutineStack()
@@ -158,112 +264,6 @@ func check(t *testing.T, ck *Clerk, key string, value string, mylog *raft.Mylog)
 // 	fmt.Printf("  ... Passed\n")
 // 	mylog.DFprintf("  ... Passed\n")
 // }
-func TestStaticShards(t *testing.T) {
-	dir := "./logs4B/TestStaticShards"
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		// 必须分成两步：先创建文件夹、再修改权限
-		os.Mkdir(dir, 0777) //0777也可以os.ModePerm
-		os.Chmod(dir, 0777)
-	}
-	filename := fmt.Sprintf("%v/%v.txt", dir, 0)
-	w, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-	
-	if err != nil{
-		DPrintf("%v \n", err)
-		return 
-	}
-	mylog := &raft.Mylog{
-		W: w,
-		Debug: true,
-	}
-	err = w.Truncate(0)
-	if err != nil {
-		panic(err)
-	}
-	defer w.Close()
-
-	fmt.Printf("Test: static shards ...\n")
-	mylog.DFprintf("Test: static shards ...\n")
-	mylog.GoroutineStack()
-
-	cfg := make_config(t, 3, false, -1, mylog)
-	defer cfg.cleanup()
-
-	ck := cfg.makeClient() // make two shardctrler.Clerk : ck.sm, cfg.mck  .  why?
-	mylog.DFprintf("*-------------join 0, 1----------------\n")
-	cfg.join(0)
-	cfg.join(1)
-
-	n := 10
-	ka := make([]string, n)
-	va := make([]string, n)
-	for i := 0; i < n; i++ {
-		ka[i] = strconv.Itoa(i) // ensure multiple shards
-		va[i] = randstring(20)
-		ck.Put(ka[i], va[i])
-	}
-	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i], mylog)
-	}
-
-	// make sure that the data really is sharded by
-	// shutting down one shard and checking that some
-	// Get()s don't succeed.
-	mylog.DFprintf("*-------------ShutdownGroup 1----------------\n")
-
-	cfg.ShutdownGroup(1)
-	cfg.checklogs() // forbid snapshots
-
-	ch := make(chan string)
-	// group1 shard 0, 1, 2, 3, 4, 5 - ascii "2, 3, 4, 5, 6"
-	xis := []int{7, 8, 9, 0, 1} // to avoid routines leak
-	// for xi := 0; xi < n; xi++ {
-	for _, xi := range xis{
-		ck1 := cfg.makeClient() // only one call allowed per client
-		go func(i int) {
-			v := ck1.Get(ka[i])
-			// if v == "timeout"{
-			// 	return 
-			// }
-			if v != va[i] {
-				ch <- fmt.Sprintf("Get(%v): expected:\n%v\nreceived:\n%v", ka[i], va[i], v)
-			} else {
-				ch <- ""
-			}
-		}(xi)
-	}
-
-	// wait a bit, only about half the Gets should succeed.
-	ndone := 0
-	done := false
-	for done == false {
-		select {
-		case err := <-ch:
-			if err != "" {
-				mylog.DFprintf("fail: %v\n", err)
-				t.Fatal(err)
-			}
-			ndone += 1
-		case <-time.After(time.Second * 2):
-			done = true
-			break
-		}
-	}
-
-	if ndone != 5 {
-		mylog.DFprintf("fail: expected 5 completions with one shard dead; got %v\n", ndone)
-		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
-	}
-
-	// bring the crashed shard/group back to life.
-	cfg.StartGroup(1)
-	for i := 0; i < n; i++ {
-		check(t, ck, ka[i], va[i], mylog)
-	}
-
-	fmt.Printf("  ... Passed\n")
-	mylog.DFprintf("  ... Passed\n")
-}
 
 func TestJoinLeave(t *testing.T) {
 	argList := flag.Args()

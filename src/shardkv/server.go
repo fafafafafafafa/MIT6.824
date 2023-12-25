@@ -68,7 +68,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	kv.mu.Lock()
 	shard := key2shard(args.Key)
 	switch kv.shardState[shard]{
-	case NOTSERVED:
+	case NOTSERVED, DEL:
 		kv.mylog.DFprintf("***kv.Get, key: %v is not in the group: %v, config.Shards: %v\n", args.Key, kv.gid, kv.config.Shards)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
@@ -102,7 +102,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 			
 			shard := key2shard(args.Key)
 			switch kv.shardState[shard]{
-			case NOTSERVED:
+			case NOTSERVED, DEL:
 				kv.mylog.DFprintf("***kv.Get-, key: %v is not in the group: %v, config.Shards: %v\n", args.Key, kv.gid, kv.config.Shards)
 				reply.Err = ErrWrongGroup
 				kv.mu.Unlock()
@@ -113,7 +113,7 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 				reply.Err = ErrNotReady
 				kv.mu.Unlock()
 				return
-			case SERVED:
+			case SERVED, READY:
 				v, ok := kv.dataset[applyMsg.Op.Key]
 				if !ok{
 					reply.Err = ErrNoKey
@@ -150,7 +150,7 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	shard := key2shard(args.Key)
 	switch kv.shardState[shard]{
-	case NOTSERVED:
+	case NOTSERVED, DEL:
 		kv.mylog.DFprintf("***kv.PutAppend, key: %v is not in the group: %v, config.Shards: %v\n", args.Key, kv.gid, kv.config.Shards)
 		reply.Err = ErrWrongGroup
 		kv.mu.Unlock()
@@ -173,6 +173,8 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		Key: args.Key,
 		Value: args.Value,
 	}
+	kv.mylog.DFprintf("***kv.PutAppend: group: %v, kvserver: %v, op: %+v\n", kv.gid, kv.me, op)
+
 	index, _, isLeader := kv.rf.Start(op)
 	if isLeader{
 		ch := kv.getAgreeChs(index)
@@ -189,18 +191,6 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 			reply.Err = ErrWrongLeader
 		}
 
-		// if !isSameOp(op, opMsg){
-		// 	kv.mylog.DFprintf("*kv.PutAppend: different, group: %v, kvserver: %v, ClientId(%v, %v), SeqId(%v, %v), Method(%v, %v), Key(%v, %v), Value(%v, %v)\n",
-		// 	kv.me,
-		// 	op.ClientId, opMsg.ClientId, 
-		// 	op.SeqId, opMsg.SeqId,
-		// 	op.Method, opMsg.Method,
-		// 	op.Key, opMsg.Key,
-		// 	op.Value, opMsg.Value,
-		// 	)
-
-		// 	reply.Err = ErrWrongLeader
-		// }
 	}else{
 		reply.Err = ErrWrongLeader
 	}
@@ -294,11 +284,12 @@ func (kv *ShardKV) doPut(opMsg Op) Err{
 		
 		shard := key2shard(opMsg.Key)
 		switch kv.shardState[shard]{
-		case NOTSERVED:
+		case NOTSERVED, DEL:
 			kv.mylog.DFprintf("***kv.doPut, key: %v is not in the group: %v, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
 			return ErrWrongGroup
+
 		case NOTREADY:
-			kv.mylog.DFprintf("***kv.doPut, key: %v in the group: %v is not ready, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
+			kv.mylog.DFprintf("***kv.doPut, key: %v in the group: %v is NOTREADY, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
 			return ErrNotReady
 		}
 		kv.mylog.DFprintf("***kv.doPut: Put, group: %v, kvserver: %v, key: %v, value: %v\n", kv.gid, kv.me, opMsg.Key, opMsg.Value)
@@ -320,11 +311,12 @@ func (kv *ShardKV) doAppend(opMsg Op)Err{
 	if !ok || opMsg.SeqId > curSeqId{
 		shard := key2shard(opMsg.Key)
 		switch kv.shardState[shard]{
-		case NOTSERVED:
+		case NOTSERVED, DEL:
 			kv.mylog.DFprintf("***kv.doAppend, key: %v is not in the group: %v, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
 			return ErrWrongGroup
+
 		case NOTREADY:
-			kv.mylog.DFprintf("***kv.doAppend, key: %v in the group: %v is not ready, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
+			kv.mylog.DFprintf("***kv.doAppend, key: %v in the group: %v is NOTREADY, config.Shards: %v\n", opMsg.Key, kv.gid, kv.config.Shards)
 			return ErrNotReady
 		}
 		
@@ -353,8 +345,9 @@ func (kv *ShardKV) doUpdate(opMsg Op){
 
 		for i := 0; i < shardctrler.NShards; i++{
 			if kv.lastConfig.Shards[i] == kv.gid && kv.config.Shards[i] != kv.gid{ 
-				// need move out
-				kv.shardState[i] = NOTSERVED
+				// need move out 
+				kv.shardState[i] = DEL
+				
 			}
 			if kv.lastConfig.Shards[i] != kv.gid && kv.config.Shards[i] == kv.gid{ 
 				// need move in
@@ -366,7 +359,6 @@ func (kv *ShardKV) doUpdate(opMsg Op){
 					kv.shardState[i] = NOTREADY
 				}
 				
-
 			}
 		}
 		kv.moveInShards = moveInShards
@@ -385,7 +377,6 @@ func (kv *ShardKV) doMoveShard(opMsg Op){
 	kv.mylog.DFprintf("***kv.doMoveShard: group: %v, kvserver: %v, opMsg: %+v,\n kv.dataset: %+v\n kv.moveInShards: %+v,\n kv.shardState:%+v\n", 
 	kv.gid, kv.me, opMsg, kv.dataset, kv.moveInShards, kv.shardState)
 
-	
 	// if kv.shardState[opMsg.Shard] == SERVED{
 	// 	// should not change
 	// 	return 
@@ -393,22 +384,52 @@ func (kv *ShardKV) doMoveShard(opMsg Op){
 	 
 	if _, ok := kv.moveInShards[opMsg.Shard]; ok{
 
-		for key, value := range opMsg.ShardData{
-			kv.dataset[key] = value
-		}
-		// move clientid2seqid
-		for clientId, seqId := range opMsg.ClientId2seqId{
-			if id, ok := kv.clientId2seqId[clientId]; !ok || id < seqId{
-				kv.clientId2seqId[clientId] = seqId
-			} 
-		}
 		// just do once, because those keys belong to the same shard 
-		delete(kv.moveInShards, opMsg.Shard)
+		// delete(kv.moveInShards, opMsg.Shard)
 		if kv.shardState[opMsg.Shard] == NOTREADY{
-			kv.shardState[opMsg.Shard] = SERVED
+			for key, value := range opMsg.ShardData{
+				kv.dataset[key] = value
+			}
+			// move clientid2seqid
+			for clientId, seqId := range opMsg.ClientId2seqId{
+				if id, ok := kv.clientId2seqId[clientId]; !ok || id < seqId{
+					kv.clientId2seqId[clientId] = seqId
+				} 
+			}
+			kv.shardState[opMsg.Shard] = READY
 		}
 	}
 	kv.mylog.DFprintf("***kv.doMoveShard-: group: %v, kvserver: %v, opMsg: %+v,\n kv.dataset: %+v\n kv.moveInShards: %+v,\n kv.shardState:%+v\n", 
+	kv.gid, kv.me, opMsg, kv.dataset, kv.moveInShards, kv.shardState)
+
+}
+func (kv *ShardKV) doDelShard(opMsg Op){
+	if opMsg.ConfigNum != kv.config.Num{
+		kv.mylog.DFprintf("***kv.doDelShard: group: %v, kvserver: %v, opMsg.ConfigNum(%v) - kv.config.Num(%v)\n opMsg: %+v\n", 
+		kv.gid, kv.me, opMsg.ConfigNum, kv.config.Num, opMsg)
+		return 
+	}
+	kv.mylog.DFprintf("***kv.doDelShard: group: %v, kvserver: %v, opMsg: %+v,\n kv.dataset: %+v\n kv.moveInShards: %+v,\n kv.shardState:%+v\n", 
+	kv.gid, kv.me, opMsg, kv.dataset, kv.moveInShards, kv.shardState)
+
+	switch kv.shardState[opMsg.Shard]{
+	case DEL:
+		var keys []string
+		for key, _ := range kv.dataset{
+			keys = append(keys, key)
+		}
+		for _, key := range keys{
+			if key2shard(key) == opMsg.Shard{
+				delete(kv.dataset, key)
+			}
+		}
+		kv.shardState[opMsg.Shard] = NOTSERVED
+	case READY:
+		delete(kv.moveInShards, opMsg.Shard)
+		kv.shardState[opMsg.Shard] = SERVED
+	}
+	
+	kv.mylog.DFprintf("***kv.doDelShard-: group: %v, kvserver: %v, opMsg: %+v,\n kv.dataset: %+v\n kv.moveInShards: %+v,\n kv.shardState:%+v\n", 
 	kv.gid, kv.me, opMsg, kv.dataset, kv.moveInShards, kv.shardState)
 
 }
@@ -479,12 +500,15 @@ func (kv *ShardKV) waitApply(){
 					case "MoveShard":
 						reply.Err = ""
 						kv.doMoveShard(opMsg)
-					
+					case "DelShard":
+						reply.Err = ""
+						kv.doDelShard(opMsg)
 					}
 		
 					lastApplied = msg.CommandIndex
 
-					if (msg.CommandIndex+1) % 10 == 0{
+					if kv.maxraftstate > 0 && (msg.CommandIndex+1) % 10 == 0{
+
 						w := new(bytes.Buffer)
 						e := labgob.NewEncoder(w)
 						// v := kv.dataset
@@ -515,64 +539,198 @@ func (kv *ShardKV) waitApply(){
 		case <- kv.stopCh:
 			
 		}
-
- 
 	}
 	kv.mylog.DFprintf("***waitApply(): end, kvserver: %v\n", kv.me)
 	// close(kv.applyCh)
 	
 }
 
-func (kv *ShardKV) updateConfig(){
-	// for kv.killed() == false{
-	if _, isleader := kv.rf.GetState(); isleader{
-		kv.mu.Lock()
-
-		config := kv.mck.Query(kv.config.Num+1)		
-		kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, get config: %+v\n kv.config :%+v\n", kv.gid, kv.me, config, kv.config)
-
-		if config.Num == kv.config.Num+1{
-			kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, kv.configNum: %v, send new config: %+v\n", kv.gid, kv.me, kv.config.Num, config)
-
-			kv.mu.Unlock()
-			op := Op{
-				Method: "Update",
-				Config: config,
-			}
-			index, _, isLeader := kv.rf.Start(op)
-
-			if isLeader{
-				ch := kv.getAgreeChs(index)
-				select{
-				case <- ch:
-					close(ch)
-				case <- time.After(500*time.Millisecond): // 500ms
-					// leader change
-				}
-			}
-		}else{
-			kv.mu.Unlock()
+func (kv *ShardKV) readyToUpdate()bool{
+	for _, state := range kv.shardState{
+		if state != SERVED && state != NOTSERVED{
+			return false
 		}
-
 	}
-	// }
+	return true
+}
+func (kv *ShardKV) updateConfig(){
+	for kv.killed() == false{
+		if _, isleader := kv.rf.GetState(); isleader{
+			kv.mu.Lock()
+			for !kv.readyToUpdate(){
+				time.Sleep(10*time.Millisecond)
+			}
+			config := kv.mck.Query(kv.config.Num+1)		
+			kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, get config: %+v\n kv.config :%+v\n", kv.gid, kv.me, config, kv.config)
+
+			if config.Num == kv.config.Num+1{
+				kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, kv.configNum: %v, send new config: %+v\n", kv.gid, kv.me, kv.config.Num, config)
+
+				kv.mu.Unlock()
+				op := Op{
+					Method: "Update",
+					Config: config,
+				}
+				index, _, isLeader := kv.rf.Start(op)
+
+				if isLeader{
+					ch := kv.getAgreeChs(index)
+					select{
+					case <- ch:
+						close(ch)
+					case <- time.After(500*time.Millisecond): // 500ms
+						// leader change
+					}
+				}
+			}else{
+				kv.mu.Unlock()
+			}
+
+		}
+		time.Sleep(50*time.Millisecond)
+	}
 }
 
-func (kv *ShardKV) shardMove(){
+func (kv *ShardKV) moveShard(){
 	wg := &sync.WaitGroup{}
-	// for kv.killed() == false{
-	if _, isleader := kv.rf.GetState(); isleader{
-		// if shard should be moved
-		kv.mu.Lock()
-		kv.mylog.DFprintf("***shardMove():group: %v, kvserver: %v, kv.moveInShards: %+v\n", kv.gid, kv.me, kv.moveInShards)
-		for s, g := range kv.moveInShards{
-			wg.Add(1)
-			go kv.callMoveShardData(s, g, wg)
+	for kv.killed() == false{
+		if _, isleader := kv.rf.GetState(); isleader{
+			// if shard should be moved
+			kv.mu.Lock()
+			kv.mylog.DFprintf("***moveShard():group: %v, kvserver: %v, kv.moveInShards: %+v,\n kv.shardState: %+v\n", 
+			kv.gid, kv.me, kv.moveInShards, kv.shardState)
+			for shard, state := range kv.shardState{
+				if state == NOTREADY{
+					g := kv.moveInShards[shard]
+					wg.Add(1)
+					go kv.callMoveShardData(shard, g, wg)
+				}
+			}
+
+			kv.mu.Unlock()
 		}
+		wg.Wait()
+		time.Sleep(50*time.Millisecond)
+	}
+}
+
+func (kv *ShardKV) deleteShard(){
+	wg := &sync.WaitGroup{}
+	for kv.killed() == false{
+		if _, isleader := kv.rf.GetState(); isleader{
+			// if shard should be moved
+			kv.mu.Lock()
+			kv.mylog.DFprintf("***deleteShard():group: %v, kvserver: %v, kv.moveInShards: %+v,\n kv.shardState: %+v\n", 
+			kv.gid, kv.me, kv.moveInShards, kv.shardState)
+			for shard, state := range kv.shardState{
+				if state == READY{
+					g := kv.moveInShards[shard]
+					wg.Add(1)
+					go kv.callDeleteShardData(shard, g, wg)
+				}
+			}
+			
+			kv.mu.Unlock()
+		}
+		wg.Wait()
+		time.Sleep(50*time.Millisecond)
+	}
+
+}
+func (kv *ShardKV) callDeleteShardData(shard int, gid int, wg *sync.WaitGroup){
+	defer wg.Done()
+	kv.mu.Lock()
+	args := DeleteShardDataArgs{}
+	args.ConfigNum = kv.config.Num
+	args.Shard = shard
+
+	if servers, ok := kv.lastConfig.Groups[gid]; ok {
+		kv.mu.Unlock()
+		for{
+			for si := 0; si < len(servers); si++ {
+				srv := kv.make_end(servers[si])
+				reply := DeleteShardDataReply{}
+				ok := srv.Call("ShardKV.DeleteShardData", &args, &reply)
+				// kv.mylog.DFprintf("***callMoveShardData():group: %v, kvserver: %v, reply: %+v,\n args: %+v\n", kv.gid, kv.me, reply, args)
+
+				if ok && reply.Err == OK{
+					kv.mylog.DFprintf("***callDeleteShardData():group: %v, kvserver: %v, reply: %+v,\n args: %+v\n", kv.gid, kv.me, reply, args)
+	
+					op := Op{
+						Method: "DelShard",
+						Shard: shard,
+						ConfigNum: reply.ConfigNum,
+					}
+					index, _, isLeader := kv.rf.Start(op)
+	
+					if isLeader{
+						ch := kv.getAgreeChs(index)
+						select{
+						case <-ch:
+							close(ch)
+							
+						case <- time.After(500*time.Millisecond): // 500ms
+						
+						}	
+					}
+					return
+				}
+				if ok && reply.Err == ErrNotReady{
+					kv.mylog.DFprintf("***callDeleteShardData():group: %v, kvserver: %v, reply: %+v,\n args: %+v\n", kv.gid, kv.me, reply, args)
+					time.Sleep(10 * time.Millisecond)
+					break
+				}
+			}
+
+		}
+	}else{
 		kv.mu.Unlock()
 	}
-	wg.Wait()
-	// }
+	
+}
+
+func (kv *ShardKV) DeleteShardData(args *DeleteShardDataArgs, reply *DeleteShardDataReply){
+	kv.mu.Lock()
+	
+	if _, isleader := kv.rf.GetState(); !isleader{
+		reply.Err = ErrWrongLeader
+		kv.mu.Unlock()
+		return 
+	}
+	kv.mylog.DFprintf("***DeleteShardData():group: %v, kvserver: %v, kv.configNum: %v, args: %+v\n", kv.gid, kv.me, kv.config.Num, args)
+	if args.ConfigNum < kv.config.Num{
+		reply.Err = OK
+		kv.mu.Unlock()
+		return 
+	}
+	if args.ConfigNum > kv.config.Num{
+		reply.Err = ErrNotReady
+		kv.mu.Unlock()
+		return 
+	}
+	kv.mu.Unlock()
+	op := Op{
+		Method: "DelShard",
+		Shard: args.Shard,
+		ConfigNum: args.ConfigNum,
+	}
+
+	index, _, isLeader := kv.rf.Start(op)
+	
+	if isLeader{
+		ch := kv.getAgreeChs(index)
+		var applyMsg ApplyReply
+
+		select{
+		case applyMsg = <- ch:
+			reply.Err = applyMsg.Err
+			close(ch)
+			
+		case <- time.After(500*time.Millisecond): // 500ms
+		
+		}	
+	}
+
 }
 
 func (kv *ShardKV) callMoveShardData(shard int, gid int, wg *sync.WaitGroup){
@@ -641,9 +799,15 @@ func (kv *ShardKV) MoveShardData(args *MoveShardDataArgs, reply *MoveShardDataRe
 		reply.Err = ErrWrongLeader
 		return 
 	}
-	kv.mylog.DFprintf("***MoveShardData():group: %v, kvserver: %v, kv.configNum: %v, args: %+v\n", kv.gid, kv.me, kv.config.Num, args)
+	kv.mylog.DFprintf("***MoveShardData():group: %v, kvserver: %v, kv.configNum: %v, args: %+v\n kv.shardState: %+v\n",
+	kv.gid, kv.me, kv.config.Num, args, kv.shardState)
 	if args.ConfigNum > kv.config.Num{
 		reply.Err = ErrNotReady
+		return 
+	}
+	if args.ConfigNum < kv.config.Num || kv.shardState[args.Shard] != DEL{
+
+		reply.Err = OK
 		return 
 	}
 
@@ -664,19 +828,7 @@ func (kv *ShardKV) MoveShardData(args *MoveShardDataArgs, reply *MoveShardDataRe
 	reply.Err = OK
 	
 }
-func (kv *ShardKV) ticker(){
-	for kv.killed() == false{
-		kv.mu.Lock()
-		l := len(kv.moveInShards)
-		kv.mu.Unlock()
-		if l > 0{
-			kv.shardMove()
-		}else{
-			kv.updateConfig()
-		}		
-		time.Sleep(50*time.Millisecond) 
-	}
-}
+
 //
 // servers[] contains the ports of the servers in this group.
 //
@@ -739,9 +891,9 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 
 
 	go kv.waitApply()
-	// go kv.updateConfig()
-	// go kv.shardMove()
-	go kv.ticker()
+	go kv.updateConfig()
+	go kv.moveShard()
+	go kv.deleteShard()
 	kv.mylog.DFprintf("***StartKVServer(): me: %v\n", me)
 	return kv
 }
