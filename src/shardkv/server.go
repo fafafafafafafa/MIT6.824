@@ -442,7 +442,7 @@ func (kv *ShardKV) waitApply(){
 		select{
 		case msg := <- kv.applyCh:
 			// kv.mylog.DFprintf("*kv.waitApply: group: %v, kvserver: %v, CommandIndex: %v, opMsg: %+v\n", kv.me, msg.CommandIndex, msg.Command)
-			kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, Msg: %+v\n", kv.gid, kv.me, msg)
+			kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, Msg: %+v\n lastapplied: %v\n", kv.gid, kv.me, msg, lastApplied)
 			if msg.SnapshotValid{
 				kv.mu.Lock()
 				if kv.rf.CondInstallSnapshot(msg.SnapshotTerm,
@@ -482,9 +482,13 @@ func (kv *ShardKV) waitApply(){
 				kv.mu.Unlock()
 
 			}else if msg.CommandValid && msg.CommandIndex > lastApplied{
+				// kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, test1 Msg: %+v\n", kv.gid, kv.me, msg)
 				if msg.Command != nil{
-					kv.mu.Lock()
+					// kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, test2 Msg: %+v\n", kv.gid, kv.me, msg)
+					// kv.mylog.DFprintf("***kv.waitApply: test3\n")
+
 					var opMsg Op = msg.Command.(Op)
+					kv.mu.Lock()
 					kv.mylog.DFprintf("***kv.waitApply: group: %v, kvserver: %v, get opMsg: %+v\n", kv.gid, kv.me, opMsg)
 					var reply = ApplyReply{Op: opMsg}
 					switch opMsg.Method{
@@ -546,6 +550,8 @@ func (kv *ShardKV) waitApply(){
 }
 
 func (kv *ShardKV) readyToUpdate()bool{
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
 	for _, state := range kv.shardState{
 		if state != SERVED && state != NOTSERVED{
 			return false
@@ -556,10 +562,11 @@ func (kv *ShardKV) readyToUpdate()bool{
 func (kv *ShardKV) updateConfig(){
 	for kv.killed() == false{
 		if _, isleader := kv.rf.GetState(); isleader{
-			kv.mu.Lock()
+			
 			for !kv.readyToUpdate(){
 				time.Sleep(10*time.Millisecond)
 			}
+			kv.mu.Lock()
 			config := kv.mck.Query(kv.config.Num+1)		
 			kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, get config: %+v\n kv.config :%+v\n", kv.gid, kv.me, config, kv.config)
 
@@ -609,6 +616,8 @@ func (kv *ShardKV) moveShard(){
 
 			kv.mu.Unlock()
 		}
+		kv.mylog.DFprintf("***moveShard():group: %v, kvserver: %v, is waiting kv.moveInShards: %+v,\n kv.shardState: %+v\n", 
+		kv.gid, kv.me, kv.moveInShards, kv.shardState)
 		wg.Wait()
 		time.Sleep(50*time.Millisecond)
 	}
@@ -632,6 +641,8 @@ func (kv *ShardKV) deleteShard(){
 			
 			kv.mu.Unlock()
 		}
+		kv.mylog.DFprintf("***deleteShard():group: %v, kvserver: %v, is waiting. kv.moveInShards: %+v,\n kv.shardState: %+v\n", 
+			kv.gid, kv.me, kv.moveInShards, kv.shardState)
 		wg.Wait()
 		time.Sleep(50*time.Millisecond)
 	}
@@ -690,13 +701,13 @@ func (kv *ShardKV) callDeleteShardData(shard int, gid int, wg *sync.WaitGroup){
 }
 
 func (kv *ShardKV) DeleteShardData(args *DeleteShardDataArgs, reply *DeleteShardDataReply){
-	kv.mu.Lock()
 	
 	if _, isleader := kv.rf.GetState(); !isleader{
 		reply.Err = ErrWrongLeader
-		kv.mu.Unlock()
 		return 
 	}
+	kv.mu.Lock()
+
 	kv.mylog.DFprintf("***DeleteShardData():group: %v, kvserver: %v, kv.configNum: %v, args: %+v\n", kv.gid, kv.me, kv.config.Num, args)
 	if args.ConfigNum < kv.config.Num{
 		reply.Err = OK
@@ -739,6 +750,8 @@ func (kv *ShardKV) callMoveShardData(shard int, gid int, wg *sync.WaitGroup){
 	args := MoveShardDataArgs{}
 	args.ConfigNum = kv.config.Num
 	args.Shard = shard
+	kv.mylog.DFprintf("***callMoveShardData():group: %v, kvserver: %v, args: %+v,\n kv.lastConfig.Groups[gid]: %v\n", 
+	kv.gid, kv.me, args, kv.lastConfig.Groups[gid])
 
 	if servers, ok := kv.lastConfig.Groups[gid]; ok {
 		kv.mu.Unlock()
@@ -747,7 +760,7 @@ func (kv *ShardKV) callMoveShardData(shard int, gid int, wg *sync.WaitGroup){
 				srv := kv.make_end(servers[si])
 				reply := MoveShardDataReply{}
 				ok := srv.Call("ShardKV.MoveShardData", &args, &reply)
-				// kv.mylog.DFprintf("***callMoveShardData():group: %v, kvserver: %v, reply: %+v,\n args: %+v\n", kv.gid, kv.me, reply, args)
+				kv.mylog.DFprintf("***callMoveShardData():group: %v, kvserver: %v, ok: %v,\n reply: %+v,\n args: %+v\n", kv.gid, kv.me, ok, reply, args)
 
 				if ok && reply.Err == OK{
 					kv.mylog.DFprintf("***callMoveShardData():group: %v, kvserver: %v, reply: %+v,\n args: %+v\n", kv.gid, kv.me, reply, args)
