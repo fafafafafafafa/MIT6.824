@@ -542,7 +542,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 	cfg.mylog.DFprintf("*-----------join 1------------\n")
 	cfg.join(1)
 
-	cfg.mylog.DFprintf("*-----------shutdown (0, 1) (1, 0) (2, 0)------------\n")
+	cfg.mylog.DFprintf("*-----------shutdown (0, 0) (1, 0) (2, 0)------------\n")
 	cfg.ShutdownServer(0, 0)
 	cfg.ShutdownServer(1, 0)
 	cfg.ShutdownServer(2, 0)
@@ -569,7 +569,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		va[i] += x
 	}
 	
-	cfg.mylog.DFprintf("*-----------start (0, 1) (1, 0) (2, 0)------------\n")
+	cfg.mylog.DFprintf("*-----------start (0, 0) (1, 0) (2, 0)------------\n")
 	cfg.StartServer(0, 0)
 	cfg.StartServer(1, 0)
 	cfg.StartServer(2, 0)
@@ -583,7 +583,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 
 	time.Sleep(2 * time.Second)
 
-	cfg.mylog.DFprintf("*-----------shutdown (0, 1) (1, 1) (2, 1)------------\n")
+	cfg.mylog.DFprintf("*-----------shutdown (0, 0) (1, 1) (2, 1)------------\n")
 	cfg.ShutdownServer(0, 1)
 	cfg.ShutdownServer(1, 1)
 	cfg.ShutdownServer(2, 1)
@@ -599,7 +599,7 @@ func MissChange(t *testing.T, mylog *raft.Mylog) {
 		va[i] += x
 	}
 
-	cfg.mylog.DFprintf("*-----------start (0, 1) (1, 1) (2, 1)------------\n")
+	cfg.mylog.DFprintf("*-----------start (0, 0) (1, 1) (2, 1)------------\n")
 
 	cfg.StartServer(0, 1)
 	cfg.StartServer(1, 1)
@@ -963,12 +963,12 @@ func Concurrent3(t *testing.T, mylog *raft.Mylog) {
 	time.Sleep(2 * time.Second)
 
 	atomic.StoreInt32(&done, 1)
-	cfg.mylog.DFprintf("*-----------check------------\n")
-
+	
+	cfg.mylog.DFprintf("*-----------wait done------------\n")
 	for i := 0; i < n; i++ {
 		<-ch
 	}
-
+	cfg.mylog.DFprintf("*-----------check------------\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i], mylog)
 	}

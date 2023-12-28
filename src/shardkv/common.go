@@ -73,12 +73,11 @@ type MoveShardDataReply struct{
 }
 
 type DeleteShardDataArgs struct{
-	
 	Shard		int 
 	ConfigNum	int
 }
 
 type DeleteShardDataReply struct{
 	Err			Err
-	ConfigNum	int
+
 }

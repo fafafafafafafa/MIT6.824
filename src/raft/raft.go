@@ -516,7 +516,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 			rf.applyCond.Broadcast()
 
-			
 		}else{
 			reply.Success = false
 			
@@ -974,6 +973,14 @@ func (rf *Raft) applier() {
 	// rf.mylog.DFprintf("applier: raft: %v, close(rf.applyCh)\n", rf.me)
 	// close(rf.applyCh)
  
+}
+
+func (rf *Raft) HasCurrentTerm()(bool, bool){
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	e := rf.log.GetLastEntry()
+
+	return rf.identity == LEADER, e.Term == rf.currentTerm
 }
 // The ticker go routine starts a new election if this peer hasn't received
 // heartsbeats recently.

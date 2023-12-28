@@ -128,6 +128,11 @@ func (ck *Clerk) Get(key string) string {
 				// 	return ""
 				// }
 				// ... not ok, or ErrWrongLeader
+				if !ok && si == len(servers)-1{
+					ck.mylog.DFprintf("***ck.Get: ok=false, group: %v, args: %+v\n", gid, args)
+					ck.config = ck.sm.Query(-1)
+					
+				}
 			}
 		}else{
 			time.Sleep(100 * time.Millisecond)
@@ -190,6 +195,11 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 					break
 				}
 				// ... not ok, or ErrWrongLeader
+				if !ok && si == len(servers)-1{
+					ck.mylog.DFprintf("***ck.PutAppend: ok=false, group: %v, args: %+v\n", gid, args)
+					ck.config = ck.sm.Query(-1)
+					
+				}
 			}
 		}else{
 			time.Sleep(100 * time.Millisecond)
