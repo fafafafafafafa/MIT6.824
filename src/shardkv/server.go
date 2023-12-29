@@ -432,6 +432,30 @@ func (kv *ShardKV) doDelShard(opMsg Op){
 	
 	kv.mylog.DFprintf("***kv.doDelShard-: group: %v, kvserver: %v, opMsg: %+v,\n kv.dataset: %+v\n kv.moveInShards: %+v,\n kv.shardState:%+v\n", 
 	kv.gid, kv.me, opMsg, kv.dataset, kv.moveInShards, kv.shardState)
+	
+}
+
+func (kv *ShardKV) snapshot(lastApplied int){
+	interval := 1
+	if kv.maxraftstate > 0 && (lastApplied+1) % interval==0{
+		w := new(bytes.Buffer)
+		e := labgob.NewEncoder(w)
+		// v := kv.dataset
+		e.Encode(kv.dataset)
+		e.Encode(kv.clientId2seqId)
+		e.Encode(kv.shardState)
+		e.Encode(kv.moveInShards)
+		e.Encode(kv.lastConfig)
+		e.Encode(kv.config)
+		// kv.mu.Unlock()
+		kv.rf.Snapshot(lastApplied, w.Bytes())
+		// kv.mu.Lock()
+	
+		kv.mylog.DFprintf(
+		"***kv.snapshot: group: %v, kvserver: %v,\n dataset: %v,\n clientId2seqId: %v,\n shardState: %v,\n kv.moveInShards %v,\n lastConfig: %v,\n config: %v,\n lastApplied: %v\n",
+		kv.gid, kv.me, kv.dataset, kv.clientId2seqId, kv.shardState, kv.moveInShards, kv.lastConfig, kv.config, lastApplied)
+	
+	}
 
 }
 func (kv *ShardKV) waitApply(){
@@ -515,26 +539,27 @@ func (kv *ShardKV) waitApply(){
 		
 					lastApplied = msg.CommandIndex
 
-					if kv.maxraftstate > 0 && (msg.CommandIndex+1) % 10 == 0{
+					kv.snapshot(lastApplied)
+					// if kv.maxraftstate > 0 && (msg.CommandIndex+1) % 1 == 0{
 
-						w := new(bytes.Buffer)
-						e := labgob.NewEncoder(w)
-						// v := kv.dataset
-						e.Encode(kv.dataset)
-						e.Encode(kv.clientId2seqId)
-						e.Encode(kv.shardState)
-						e.Encode(kv.moveInShards)
-						e.Encode(kv.lastConfig)
-						e.Encode(kv.config)
-						// kv.mu.Unlock()
-						kv.rf.Snapshot(msg.CommandIndex, w.Bytes())
-						// kv.mu.Lock()
+					// 	w := new(bytes.Buffer)
+					// 	e := labgob.NewEncoder(w)
+					// 	// v := kv.dataset
+					// 	e.Encode(kv.dataset)
+					// 	e.Encode(kv.clientId2seqId)
+					// 	e.Encode(kv.shardState)
+					// 	e.Encode(kv.moveInShards)
+					// 	e.Encode(kv.lastConfig)
+					// 	e.Encode(kv.config)
+					// 	// kv.mu.Unlock()
+					// 	kv.rf.Snapshot(msg.CommandIndex, w.Bytes())
+					// 	// kv.mu.Lock()
 
-						kv.mylog.DFprintf(
-						"***kv.waitApply: Snapshot: group: %v, kvserver: %v,\n dataset: %v,\n clientId2seqId: %v,\n shardState: %v,\n kv.moveInShards %v,\n lastConfig: %v,\n config: %v,\n lastApplied: %v\n",
-						kv.gid, kv.me, kv.dataset, kv.clientId2seqId, kv.shardState, kv.moveInShards, kv.lastConfig, kv.config, lastApplied)
+					// 	kv.mylog.DFprintf(
+					// 	"***kv.waitApply: Snapshot: group: %v, kvserver: %v,\n dataset: %v,\n clientId2seqId: %v,\n shardState: %v,\n kv.moveInShards %v,\n lastConfig: %v,\n config: %v,\n lastApplied: %v\n",
+					// 	kv.gid, kv.me, kv.dataset, kv.clientId2seqId, kv.shardState, kv.moveInShards, kv.lastConfig, kv.config, lastApplied)
 
-					}
+					// }
 					kv.mu.Unlock()
 					if _, isLeader := kv.rf.GetState(); isLeader {
 						ch := kv.getAgreeChs(msg.CommandIndex)
@@ -562,7 +587,19 @@ func (kv *ShardKV) readyToUpdate()bool{
 		}
 	}
 	return true
+
 }
+
+func (kv *ShardKV)getKeys(dataset map[string]string) []string{
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	keys := []string{}
+	for k, _ := range kv.dataset{
+		keys = append(keys, k)
+	}
+	return keys 
+}
+
 func (kv *ShardKV) updateConfig(){
 	for kv.killed() == false{
 		if _, isleader := kv.rf.GetState(); isleader{
@@ -576,8 +613,8 @@ func (kv *ShardKV) updateConfig(){
 			kv.mu.Unlock()
 
 			config := kv.mck.Query(nextConfigNum)		
-			kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, get config: %+v\n kv.config :%+v\n kv.shardState: %+v\n",
-			 kv.gid, kv.me, config, kv.config, kv.shardState)
+			kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, get config: %+v\n kv.config :%+v\n kv.shardState: %+v\n keys: %v\n",
+			 kv.gid, kv.me, config, kv.config, kv.shardState, kv.getKeys(kv.dataset))
 			kv.mu.Lock()
 			if config.Num == kv.config.Num+1{
 				kv.mylog.DFprintf("***updateConfig(): group: %v, kvserver: %v, kv.configNum: %v, send new config: %+v\n", kv.gid, kv.me, kv.config.Num, config)

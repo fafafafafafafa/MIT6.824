@@ -6,7 +6,7 @@ import "fmt"
 import "runtime/pprof"
 import "sync"
 // Debugging
-const Debug = false
+const Debug = true
 
 type Mylog struct{
 	W io.Writer

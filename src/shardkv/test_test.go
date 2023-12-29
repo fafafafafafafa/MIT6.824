@@ -1441,6 +1441,7 @@ func Challenge1Delete(t *testing.T, mylog *raft.Mylog) {
 			raft := cfg.groups[gi].saved[i].RaftStateSize()
 			snap := len(cfg.groups[gi].saved[i].ReadSnapshot())
 			total += raft + snap
+			cfg.mylog.DFprintf("*------gi: %v, i: %v, raft: %v, snap: %v------\n", gi, i, raft, snap)
 		}
 	}
 
